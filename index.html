@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#e9e6df" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121211" media="(prefers-color-scheme: dark)">
+<title>Parts Bin</title>
+<meta name="description" content="Keep track of your electronics parts, offline, on your own device.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Parts Bin">
+<style>
+/* Layout idea: a quiet text thread. Your messages are ink bubbles, the bin answers in plain type and live cards. One thumb reaches everything: chips and composer sit at the bottom. */
+:root{
+  --paper:#e9e6df; --card:#f4f2ec; --ink:#151514; --mute:#827e75; --line:#d3cfc5;
+  --face:#fbfaf7; --edge:#c4beb1; --well:#dcd8cf; --ink-edge:#000; --sig-edge:#b73a0c;
+  --signal:#ff5a1f; --ok:#2a8a52;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono","SFMono-Regular","Cascadia Mono",Menlo,Consolas,"Roboto Mono","DejaVu Sans Mono",monospace;
+  --press:cubic-bezier(.2,.9,.25,1);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--paper:#121211;--card:#1c1b19;--ink:#eeebe3;--mute:#8b877e;--line:#2c2b28;--face:#2e2d2a;--edge:#090908;--well:#0c0c0b;--ink-edge:#9e9a90;--sig-edge:#8f2f0e;--signal:#ff6a3d;--ok:#5cc489;color-scheme:dark}}
+:root[data-theme="dark"]{--paper:#121211;--card:#1c1b19;--ink:#eeebe3;--mute:#8b877e;--line:#2c2b28;--face:#2e2d2a;--edge:#090908;--well:#0c0c0b;--ink-edge:#9e9a90;--sig-edge:#8f2f0e;--signal:#ff6a3d;--ok:#5cc489;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;height:100%;background:var(--paper);color:var(--ink);font:16px/1.45 var(--sans);-webkit-text-size-adjust:100%;overscroll-behavior:none}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0;padding:0;touch-action:manipulation}
+:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+#boot{padding:40px 20px;color:var(--mute)}
+#app{display:flex;flex-direction:column;height:100%;height:100dvh;max-width:640px;margin:0 auto}
+.hd{display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top)) 18px 10px;border-bottom:1px solid var(--line)}
+.brand{font-weight:700;letter-spacing:-.01em;font-size:17px}
+#counts{flex:1;color:var(--mute);font:13px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none;transition:background .2s}
+.dot[data-s="busy"]{background:var(--mute)} .dot[data-s="bad"]{background:var(--signal);animation:blink 1s steps(2) infinite} .dot[data-s="ro"]{background:transparent;border:1.5px solid var(--mute)}
+@keyframes blink{50%{opacity:.2}}
+#thread{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+#thread>:first-child{margin-top:auto}
+.m{display:flex;flex-direction:column;max-width:100%;animation:in .42s cubic-bezier(.3,1.45,.5,1) both}
+.m.me{transform-origin:100% 100%} .m.bin{transform-origin:0 100%}
+.m.still{animation:none}
+@keyframes in{0%{opacity:0;transform:translateY(14px) scale(.82)}55%{opacity:1}100%{transform:none}}
+.m.me{align-items:flex-end}
+.bub{background:var(--ink);color:var(--paper);padding:9px 14px;border-radius:20px 20px 6px 20px;max-width:82%;white-space:pre-wrap;overflow-wrap:anywhere}
+.m.bin{align-items:flex-start}
+.tx{max-width:88%;padding:2px 4px;overflow-wrap:anywhere}
+.tx b,.strong{font-weight:650}
+.dim{color:var(--mute)}
+.bad .tx{color:var(--signal)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.lnk{color:inherit;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line)}
+.lnk.strong{text-decoration-color:var(--ink)}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.key{--d:0;--travel:5px;--e:var(--edge);position:relative;background:var(--face);color:var(--ink);border:1px solid rgba(0,0,0,.07);user-select:none;-webkit-user-select:none;
+  transform:translateY(calc(var(--d) * var(--travel))) scale(calc(1 - var(--d) * .02));
+  box-shadow:0 calc((1 - var(--d)) * var(--travel) + 1px) 0 var(--e),0 calc((1 - var(--d)) * var(--travel) + 6px) calc(14px - var(--d) * 10px) rgba(0,0,0,calc(.16 - var(--d) * .1));
+  margin-bottom:calc(var(--travel) + 2px)}
+.key:disabled{opacity:.45}
+.key.sm{--travel:3px}
+.act{border-radius:999px;padding:8px 15px;font-size:14px;font-weight:600}
+.act.pri,.key.ink{background:var(--ink);color:var(--paper);--e:var(--ink-edge);border-color:transparent}
+.lrow:active{background:var(--well)}
+.card{background:var(--card);border:1px solid rgba(0,0,0,.05);border-radius:26px;width:min(340px,100%);box-shadow:0 2px 0 var(--edge),0 14px 30px rgba(0,0,0,.07)}
+.part{padding:16px 16px 14px}
+.ph{display:flex;align-items:baseline;gap:8px;justify-content:space-between}
+.pname{font-weight:650;font-size:17px;text-align:left;overflow-wrap:anywhere}
+.pcat{color:var(--mute);font-size:13px;white-space:nowrap}
+.ctl{display:flex;align-items:center;justify-content:space-between;margin-top:12px;user-select:none;-webkit-user-select:none}
+.big{width:64px;height:64px;border-radius:20px;font-size:30px;line-height:1;font-weight:500;--travel:6px;flex:none}
+.num{flex:1;margin:0 12px 7px;height:86px;border-radius:20px;background:var(--well);box-shadow:inset 0 3px 6px rgba(0,0,0,.14),inset 0 -1px 0 rgba(255,255,255,.35);display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none;cursor:ns-resize;transition:transform .14s cubic-bezier(.3,1.6,.5,1);user-select:none;-webkit-user-select:none}
+.num.held{transform:scale(.965)}
+.odo{display:flex;font:650 60px/1 var(--mono);letter-spacing:-.04em;font-variant-numeric:tabular-nums;transform-origin:50% 0}
+.odo .col{display:inline-block;height:1em;overflow:hidden}
+.odo .strip{display:flex;flex-direction:column;will-change:transform}
+.odo .strip span{height:1em;line-height:1em;display:block;text-align:center}
+.num.zero .odo{color:var(--signal)} .num.unk .odo{color:var(--mute)}
+.lvl{display:block;width:100%;margin-top:12px;border-radius:20px;padding:16px;font:650 22px var(--mono);text-transform:uppercase;letter-spacing:.08em;--travel:6px}
+.lvl[data-l="plenty"]{color:var(--ok)} .lvl[data-l="out"]{color:var(--signal)}
+.pnote{margin-top:10px;color:var(--mute);font-size:14px}
+.sess{margin-top:10px;color:var(--mute);font:13px var(--mono)}
+.list{padding:4px 0;overflow:hidden}
+.lrow,.irow{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:11px 16px;border-top:1px solid var(--line);text-align:left}
+.lrow:first-child,.irow:first-child{border-top:0}
+.irow .iname{flex:1;min-width:0;overflow-wrap:anywhere}
+.irow i{font-style:normal;color:var(--mute);font-size:13px}
+.irow .act{padding:6px 12px;font-size:13px;margin-bottom:5px}
+.x{width:32px;height:32px;border-radius:50%;font-size:20px;color:var(--mute);flex:none}
+.x:active{background:var(--line)}
+.imp{max-height:340px;overflow-y:auto}
+pre.rcpt{margin:0;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px 12px;font:12.5px/1.55 var(--mono);white-space:pre;overflow-x:auto;max-width:100%;position:relative}
+pre.rcpt::before,pre.rcpt::after{content:"";position:absolute;left:0;right:0;height:6px;background:radial-gradient(circle at 5px 6px,var(--paper) 4px,transparent 4.5px) 0 0/10px 6px repeat-x}
+pre.rcpt::before{top:-1px;transform:rotate(180deg)} pre.rcpt::after{bottom:-1px}
+pre.rcpt.fresh span{display:inline-block;animation:pr .18s var(--press) both}
+@keyframes pr{from{opacity:0;transform:translateY(-4px)}}
+pre.help{margin:6px 0;font:13px/1.6 var(--mono);white-space:pre;overflow-x:auto;max-width:100%}
+.composer{padding:8px 12px calc(6px + env(safe-area-inset-bottom));background:var(--paper);position:relative;box-shadow:0 -1px 0 var(--line)}
+#chips{display:flex;gap:8px;overflow-x:auto;padding:4px 4px 6px;scrollbar-width:none}
+#chips::-webkit-scrollbar{display:none}
+.sep{flex:none;width:1.5px;background:var(--line);margin:6px 4px 12px;border-radius:1px}
+.chip{flex:none;border-radius:999px;padding:8px 14px;font-size:14px;white-space:nowrap}
+.chip b{font-family:var(--mono);font-weight:600;margin-left:4px}
+.chip.k{font-weight:600}
+.chip.go{background:var(--signal);color:#fff;--e:var(--sig-edge);font-weight:650;border-color:transparent}
+#sendForm{display:flex;align-items:flex-end;gap:10px}
+#inp{flex:1;min-width:0;resize:none;border:0;background:var(--well);box-shadow:inset 0 2px 5px rgba(0,0,0,.13);border-radius:24px;padding:13px 18px;font-size:16px;line-height:1.35;max-height:140px;outline:0;margin-bottom:8px}
+#inp:focus{box-shadow:inset 0 2px 5px rgba(0,0,0,.13),0 0 0 2px var(--ink)}
+#send{width:52px;height:52px;border-radius:50%;background:var(--signal);color:#fff;--e:var(--sig-edge);font-size:24px;font-weight:700;flex:none;--travel:5px;border-color:transparent}
+#flash{position:absolute;left:50%;top:-40px;transform:translate(-50%,6px);background:var(--ink);color:var(--paper);padding:6px 14px;border-radius:999px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s var(--press)}
+#flash.on{opacity:1;transform:translate(-50%,0)}
+.banner{margin:8px 14px 0;border:1.5px solid var(--ink);border-radius:16px;padding:10px 12px;display:flex;gap:10px;align-items:center;font-size:14px}
+.banner span{flex:1}
+dialog.sheet{border:0;padding:0;margin:auto auto 0;width:100%;max-width:640px;max-height:92dvh;background:var(--card);color:var(--ink);border-radius:26px 26px 0 0;animation:up .24s var(--press)}
+@keyframes up{from{transform:translateY(40px);opacity:.6}}
+dialog.sheet::backdrop{background:rgba(0,0,0,.35)}
+.sh{padding:10px 18px calc(18px + env(safe-area-inset-bottom));display:grid;gap:12px}
+.grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 4px}
+.sh label{display:grid;gap:4px;font-size:13px;color:var(--mute)}
+.sh input,.sh select,.sh textarea{border:1.5px solid var(--line);background:var(--paper);border-radius:14px;padding:11px 12px;font-size:16px;color:var(--ink);width:100%;outline:0}
+.sh input:focus,.sh select:focus,.sh textarea:focus{border-color:var(--ink)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row{display:flex;gap:8px}
+.row .act{flex:1;padding:12px;font-size:15px;text-align:center}
+.act.warn{color:var(--signal)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="boot">opening your bin…</div>
+<div id="app" hidden>
+  <header class="hd"><button class="brand" id="hdBtn" type="button">parts bin</button><span id="counts"></span><span class="dot" id="dot" data-s="busy" role="status"></span></header>
+  <div class="banner" id="update" hidden><span>a new version is ready. your parts stay as they are.</span><button class="key act pri" type="button" id="updateGo">update</button></div>
+  <main id="thread" aria-live="polite"></main>
+  <footer class="composer">
+    <div id="flash" role="status"></div>
+    <div id="chips"></div>
+    <form id="sendForm" autocomplete="off">
+      <label for="inp" style="position:absolute;left:-9999px">Message your bin</label>
+      <textarea id="inp" rows="1" placeholder="type a part…" enterkeyhint="send" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+      <button id="send" class="key lg" type="submit" aria-label="send">↑</button>
+    </form>
+    <input id="fileIn" type="file" accept=".txt,.csv,.tsv,.json,text/plain,text/csv,application/json" hidden>
+  </footer>
+</div>
+
+<dialog id="dEdit" class="sheet"><form id="editForm" class="sh" method="dialog">
+  <div class="grab" data-close></div>
+  <label for="eName">name<input id="eName" required spellcheck="false" autocapitalize="off"></label>
+  <label for="eCat">category<input id="eCat" list="catList" required></label>
+  <div class="two">
+    <label for="eQty">count<input id="eQty" type="number" min="0" step="1" inputmode="numeric" placeholder="not counted"></label>
+    <label for="eBulk">or a level<select id="eBulk"><option value="">count it</option><option value="plenty">plenty</option><option value="low">low</option><option value="out">out</option></select></label>
+  </div>
+  <label for="eNotes">notes<textarea id="eNotes" rows="2" placeholder="type, voltage, which one is broken…"></textarea></label>
+  <p id="eSrc" style="margin:0;color:var(--mute);font-size:13px"></p>
+  <div class="row"><button class="key act warn" type="button" id="eDel">remove</button><button class="key act" type="button" data-close>cancel</button><button class="key act pri" type="submit">save</button></div>
+</form></dialog>
+<datalist id="catList"></datalist>
+
+<script>
+
+
+/* ================= parsing (pure, no DOM) ================= */
+const CATS=["Dev boards","Chips","Wireless","Displays","Sensors","Input","Audio","Actuators","Power","Interface & debug","Passives","Connectors & proto","Tools","Other"];
+const CAT_RULES=[
+  ["Power",/\b(power supply|psu|solar|battery|batteries|lipo|18650|charger|tp4056|buck|boost|regulator|lm7805|ams1117|usb[- ]?c|dc jack|barrel)\b/],
+  ["Sensors",/\b(sensor|sensors|ultrasonic|hc-?sr04|pir|dht\d*|bme\d*|bmp\d*|mpu\d*|imu|accelerometer|gyro|photo ?res\w*|ldr|thermistor|ds18b20|hall|load cell|hx711|gps)\b/],
+  ["Wireless",/\b(nrf24\w*|nrf\w*|rfid|rc522|nfc|bluetooth|hc-?0[56]|ble|lora|sx127\d|wifi module|433 ?mhz|antenna|antennas|xbee)\b/],
+  ["Dev boards",/\b(esp32\w*|esp8266|esp-?01|nodemcu|wemos|d1 mini|arduino|uno|nano|mega|pro mini|leonardo|raspberry|pico|rp2040|stm32\w*|blue ?pill|black ?pill|teensy|dev ?board|devkit|fpga|attiny\w* board)\b/],
+  ["Displays",/\b(oled|lcd\w*|tft|display|displays|screen|screens|7[- ]?seg\w*|seven[- ]segment|segment|matrix|e-?ink|epaper|nokia 5110|ssd1306|st7735|ili9341)\b/],
+  ["Actuators",/\b(servo|servos|motor|motors|stepper|relay|relays|solenoid|vibration|fan|driver|l298\w*|a4988|drv8825|uln2003)\b/],
+  ["Input",/\b(keypad|keypads|keyboard|joystick|joysticks|encoder|encoders|button|buttons|switch|switches|potentiometer|pot|pots|touch|slider)\b/],
+  ["Audio",/\b(amp|amps|amplifier|lm386|pam8403|speaker|speakers|buzzer|buzzers|microphone|microphones|mic|mics|guitar|jack|jacks|audio|dfplayer|i2s)\b/],
+  ["Interface & debug",/\b(logic analy\w*|usb to serial|usb-?serial|pl2303|ch340|cp210\d|ft232|ft245|ftdi|programmer|st-?link|usbasp|jtag|rtc|clock|ds1307|ds3231|pcf8563|sd card|level shifter|multiplexer|eeprom|flash module)\b/],
+  ["Passives",/\b(resistor|resistors|capacitor|capacitors|caps?|inductor|inductors|diode|diodes|led|leds|transistor|transistors|mosfet|mosfets|crystal|oscillator|fuse|thermistor|varistor|trim ?pots?)\b/],
+  ["Chips",/\b(74(ls|hc|hct|f|s|als)?\d{2,3}\w*|cd4\d{3}\w*|4\d{3}be|lm\d{3,4}\w*|ua741\w*|ne555|555|741|op-?amp|opamp|atmega\w*|attiny\w*|pic\d+\w*|ic|ics|chip|chips|eeprom|shift register|max\d{3,4}\w*)\b/],
+  ["Connectors & proto",/\b(breadboard|breadboards|perfboard|stripboard|proto ?board|pcb|header|headers|jumper|jumpers|dupont|wire|wires|connector|connectors|terminal|jst)\b/],
+  ["Tools",/\b(multimeter|soldering|solder|iron|oscilloscope|scope|tweezers|flux|heat ?gun|hot glue|pliers|cutters|bench supply)\b/],
+];
+function guessCat(name){const s=" "+name.toLowerCase()+" ";for(const [c,re] of CAT_RULES)if(re.test(s))return c;return "Other"}
+
+const NUMWORDS={one:1,a:1,an:1,single:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,fifteen:15,twenty:20,dozen:12};
+const PARTNUMS=new Set(["555","556","741","358","386","324","339","393","4558","7805","7812","7833","1117","595","165","2222","3904","3906","4148","4007","5819"]);
+const isPlural=n=>{const w=n.trim().split(/\s+/).pop().toLowerCase();return w.length>3&&/s$/.test(w)&&!/(ss|us|is|sis)$/.test(w)};
+const cap1=s=>s.charAt(0).toUpperCase()+s.slice(1);
+const ACR=new Set(["oled","lcd","tft","usb","led","leds","rfid","nfc","pir","ic","ics","dc","ac","rtc","gps","imu","pcb","sd","i2c","spi","uart","ble","mcu","adc","dac","diy","ir"]);
+const pretty=s=>cap1(s.split(" ").map(w=>{const l=w.toLowerCase();if(w!==l)return w;if(ACR.has(l))return l.toUpperCase();if(/^[a-z]{1,5}\d[a-z0-9-]*$/.test(l)&&!/^\d/.test(l))return l.toUpperCase();if(l==="pi")return "Pi";return w}).join(" "));
+
+function parseLine(raw){
+  let s=String(raw).replace(/ /g," ").replace(/^\s*(?:[-*•·▪◦]|\d+[.)])\s+/,"").replace(/\s+/g," ").trim();
+  if(!s||/^(#|\/\/)/.test(s))return null;
+  let qty=null,bulk="",counted=false,m;
+  // fuzzy amounts
+  if((m=s.match(/^(?:a\s+)?(?:bunch|lot|lots|ton|tons|load|loads|heap|bag|box|handful|pile)\s+of\s+(.+)$/i))||(m=s.match(/^(?:many|plenty\s+of|loads\s+of|tons\s+of)\s+(.+)$/i))){bulk="plenty";s=m[1];counted=true}
+  else if(m=s.match(/^(?:some|a\s+few|few|several|various|assorted|misc\.?|random)\s+(.+)$/i)){qty=null;s=m[1];counted=true}
+  else if(m=s.match(/^(?:a\s+)?(?:pair|couple)\s+(?:of\s+)?(.+)$/i)){qty=2;s=m[1];counted=true}
+  else if(m=s.match(/^([a-z]+)\s+(.+)$/i)){const w=m[1].toLowerCase();if(NUMWORDS[w]&&!(w==="a"||w==="an")||((w==="a"||w==="an")&&!/^(bunch|lot)/i.test(m[2]))){qty=NUMWORDS[w];s=m[2];counted=true}}
+  if(!counted){
+    // leading count: "2 esp32", "2x esp32", "2 x esp32", "2pcs esp32"
+    if((m=s.match(/^(\d+)\s*(?:[x×]|pcs?\.?|pieces?|units?)\s+(.+)$/i))||(m=s.match(/^(\d+)\s+(.+)$/))){
+      if(PARTNUMS.has(m[1])&&!/^\s*[x×]/i.test(s.slice(m[1].length))&&!/^\d+\s*[x×]/i.test(s)){/* "555 timer": part number */}
+      else{qty=+m[1];s=m[2];counted=true}
+    }
+    // glued: "1esp8266" (number then 3+ letters)
+    else if(m=s.match(/^(\d{1,3})([a-z]{3,}.*)$/i)){qty=+m[1];s=m[2];counted=true}
+  }
+  if(!counted){
+    // trailing count: "esp32 x2", "esp32 ×2", "esp32 - 2", "esp32: 2", "esp32 (2)", "esp32, 2", "esp32 2pcs", tab
+    if((m=s.match(/^(.+?)\s*(?:[x×]\s*(\d+)|\s[-–:=]\s*(\d+)|[:=,;\t]\s*(\d+)|\((\d+)\s*(?:pcs?)?\))\s*$/i))||(m=s.match(/^(.+?)\s+(\d+)\s*(?:pcs?|pieces?|units?)\.?\s*$/i))){
+      const n=m[2]||m[3]||m[4]||m[5];if(n!==undefined){qty=+n;s=m[1];counted=true}
+    }
+  }
+  s=s.replace(/^(?:of\s+)/i,"").replace(/[\s,;:.\-]+$/,"").trim();
+  if(!s)return null;
+  if(!counted)qty=isPlural(s)?null:1;
+  return {name:pretty(s),qty:bulk?null:qty,bulk,cat:guessCat(s),notes:""};
+}
+
+function splitCsv(line,d){const out=[];let cur="",q=false;for(let i=0;i<line.length;i++){const c=line[i];if(q){if(c==='"'){if(line[i+1]==='"'){cur+='"';i++}else q=false}else cur+=c}else if(c==='"')q=true;else if(c===d){out.push(cur);cur=""}else cur+=c}out.push(cur);return out.map(x=>x.trim())}
+function fromObj(o){
+  if(typeof o==="string")return parseLine(o);
+  if(!o||typeof o!=="object")return null;
+  const name=o.name??o.part??o.item??o.title??o.component;if(!name)return null;
+  let q=o.qty??o.quantity??o.count??o.amount??o.qnt;
+  let bulk=["plenty","low","out"].includes(String(o.bulk||o.level||"").toLowerCase())?String(o.bulk||o.level).toLowerCase():"";
+  if(typeof q==="string"&&!/^\s*\d+\s*$/.test(q)){const l=q.toLowerCase();if(/plenty|lots|bunch|many/.test(l))bulk="plenty";else if(/low|few/.test(l))bulk="low";q=null}
+  const qty=(q===null||q===undefined||q===""||isNaN(+q))?null:Math.max(0,Math.round(+q));
+  const nm=String(name).trim();
+  return {name:nm,qty:bulk?null:qty,bulk,cat:String(o.cat??o.category??o.type??"").trim()||guessCat(nm),notes:String(o.notes??o.note??o.description??"").trim()};
+}
+function parseAny(text){
+  const t=String(text||"").replace(/^﻿/,"").trim();if(!t)return {rows:[],kind:""};
+  if(/^[\[{]/.test(t)){
+    try{
+      const d=JSON.parse(t);let arr=null;
+      if(Array.isArray(d))arr=d;
+      else if(Array.isArray(d.items))arr=d.items;else if(Array.isArray(d.parts))arr=d.parts;
+      else if(d&&typeof d==="object")arr=Object.entries(d).map(([k,v])=>typeof v==="number"?{name:k,qty:v}:(v&&typeof v==="object"?{name:k,...v}:{name:k,qty:v}));
+      return {rows:(arr||[]).map(fromObj).filter(Boolean),kind:"JSON"};
+    }catch(e){/* fall through to text */}
+  }
+  const lines=t.split(/\r?\n/);
+  const first=lines[0].toLowerCase(),d=first.includes("\t")?"\t":first.includes(";")&&!first.includes(",")?";":",";
+  const hdr=splitCsv(first,d).map(h=>h.replace(/[^a-z]/g,""));
+  if(hdr.length>1&&hdr.some(h=>["name","part","item","component"].includes(h))){
+    const rows=lines.slice(1).filter(l=>l.trim()).map(l=>{const c=splitCsv(l,d),o={};hdr.forEach((h,i)=>o[h]=c[i]);return fromObj(o)}).filter(Boolean);
+    return {rows,kind:"spreadsheet"};
+  }
+  // a comma-separated single line of parts: "2 esp32, 1 pico, oled"
+  const src=(lines.length===1&&/,/.test(t)&&!/[:=]\s*\d+\s*$/.test(t))?t.split(","):lines;
+  return {rows:src.map(parseLine).filter(Boolean),kind:"list"};
+}
+const keyOf=n=>String(n).toLowerCase().replace(/[^a-z0-9µ.]+/g," ").trim().split(" ").map(w=>w.length>3&&/s$/.test(w)&&!/ss$/.test(w)?w.slice(0,-1):w).join(" ");
+
+
+
+/* ================= app ================= */
+"use strict";
+const APP_VERSION="4.0.0";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const clone=o=>JSON.parse(JSON.stringify(o));
+const uid=()=>{try{return crypto.randomUUID().replace(/-/g,"").slice(0,12)}catch(e){return Date.now().toString(36)+Math.random().toString(36).slice(2,9)}};
+const tokens=s=>String(s||"").toLowerCase().split(/[^a-z0-9.+µ]+/).filter(Boolean);
+const IN_CLAUDE=!!(window.claude&&typeof window.claude.use==="function");
+const FORMAT="parts-bin",DATA_VER=3,MAX_SNAPS=10,MAX_ITEMS=5000,MAX_IMPORT_BYTES=5e6;
+const fmt=t=>{try{return new Date(t).toLocaleString(undefined,{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}catch(e){return String(t)}};
+const hhmm=t=>{try{return new Date(t).toLocaleTimeString(undefined,{hour:"2-digit",minute:"2-digit"})}catch(e){return ""}};
+
+/* ---------- error capture: nothing that throws can touch saved data ---------- */
+const ERRLOG=[];let errBurst=0,errBurstT=0,lastSavedAt=0;
+function report(e,ctx){
+  try{
+    const rec={t:Date.now(),ctx:String(ctx||"running the app"),msg:String(e&&(e.message||e.name)||e),stack:String(e&&e.stack||"").slice(0,800)};
+    ERRLOG.push(rec);if(ERRLOG.length>30)ERRLOG.shift();
+    try{localStorage.setItem("partsbin.errors",JSON.stringify(ERRLOG))}catch(_){}
+    try{console.error("[parts-bin]",rec.ctx,e)}catch(_){}
+    const now=Date.now();if(now-errBurstT>10000){errBurst=0;errBurstT=now}
+    if(++errBurst>15)return;                                   // stop a loop from flooding the screen
+    if(typeof binError==="function")binError(rec.ctx);
+  }catch(_){}
+}
+function safe(fn,ctx){return function(...a){try{const r=fn.apply(this,a);if(r&&typeof r.then==="function")r.catch(e=>report(e,ctx));return r}catch(e){report(e,ctx)}}}
+function on(el,ev,fn,ctx){if(typeof el==="string")el=$(el);if(el)el.addEventListener(ev,safe(fn,ctx||"handling that action"))}
+window.addEventListener("error",e=>{if(e&&e.error)report(e.error,"running the app")});
+window.addEventListener("unhandledrejection",e=>report(e&&e.reason,"running a background task"));
+
+/* ---------- data rules ---------- */
+function norm(o){
+  const bulk=["plenty","low","out"].includes(o.bulk)?o.bulk:"";
+  const q=o.qty;let qty=bulk||q===""||q===null||q===undefined||!isFinite(+q)?null:Math.round(+q);
+  if(qty!==null)qty=Math.min(999999,Math.max(0,qty));
+  const name=String(o.name??"").replace(/[\u0000-\u001f]/g," ").replace(/\s+/g," ").trim().slice(0,200);
+  const out={id:String(o.id||uid()).replace(/[^A-Za-z0-9_-]/g,"").slice(0,40)||uid(),name,cat:String(o.cat||"").replace(/\s+/g," ").trim().slice(0,60)||guessCat(name),qty,bulk,notes:String(o.notes||"").trim().slice(0,1000)};
+  if(+o.added>0)out.added=Math.round(+o.added);
+  if(o.src)out.src=String(o.src).replace(/\s+/g," ").slice(0,90);
+  return out;
+}
+function validate(arr){
+  if(!Array.isArray(arr))return {ok:false,items:[],fixed:0};
+  const out=[],ids=new Set();let fixed=0;
+  for(const o of arr){
+    if(!o||typeof o!=="object"||typeof o.name!=="string"||!o.name.trim()){fixed++;continue}
+    const it=norm(o);if(!it.name){fixed++;continue}
+    if(ids.has(it.id)){it.id=uid();fixed++}
+    ids.add(it.id);out.push(it);
+    if(out.length>=MAX_ITEMS){fixed+=arr.length-MAX_ITEMS;break}
+  }
+  return {ok:true,items:out,fixed};
+}
+function fnv(str){let h=0x811c9dc5;for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,0x01000193)>>>0}return h.toString(16).padStart(8,"0")}
+const sumOf=list=>fnv(JSON.stringify(list));
+const makeState=(list,rev)=>({v:DATA_VER,app:APP_VERSION,rev,t:Date.now(),count:list.length,items:list,sum:sumOf(list)});
+function verify(st){
+  if(!st||typeof st!=="object"||!Array.isArray(st.items))return null;
+  if(st.sum&&st.sum!==sumOf(st.items))return null;
+  const r=validate(st.items);return r.ok?{...st,items:r.items,fixed:r.fixed}:null;
+}
+
+/* ---------- storage: IndexedDB primary, localStorage mirror, memory last resort ---------- */
+const LS_CUR="partsbin.v3.current",LS_SNAPS="partsbin.v3.snaps",LS_META="partsbin.v3.meta",LEGACY=["partsbin.v2","partsbin.v1"];
+const lsGet=k=>{try{const r=localStorage.getItem(k);return r?JSON.parse(r):null}catch(e){return null}};
+const lsRaw=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}};
+const isQuota=e=>{const x=e&&(e.err||e);return !!x&&(x.name==="QuotaExceededError"||x.code===22||x.code===1014||/quota/i.test(String(x.message||"")))};
+function openIdb(){
+  return new Promise(res=>{
+    let done=false;const fin=v=>{if(!done){done=true;res(v)}};
+    setTimeout(()=>fin(null),4000);
+    try{const r=indexedDB.open("partsbin",1);
+      r.onupgradeneeded=()=>{const d=r.result;if(!d.objectStoreNames.contains("kv"))d.createObjectStore("kv");if(!d.objectStoreNames.contains("snaps"))d.createObjectStore("snaps",{keyPath:"id",autoIncrement:true})};
+      r.onsuccess=()=>{const d=r.result;d.onversionchange=()=>{try{d.close()}catch(e){}};fin(d)};r.onerror=()=>fin(null);r.onblocked=()=>fin(null);
+    }catch(e){fin(null)}
+  });
+}
+const reqP=r=>new Promise((res,rej)=>{r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+const txDone=t=>new Promise((res,rej)=>{t.oncomplete=()=>res();t.onabort=t.onerror=()=>rej(t.error||new Error("transaction aborted"))});
+function IdbStore(db){
+  return {kind:"idb",
+    async getCurrent(){return reqP(db.transaction("kv").objectStore("kv").get("current"))},
+    putCurrent(st,expectRev){
+      return new Promise((res,rej)=>{
+        let stale=null,t;
+        try{t=db.transaction("kv","readwrite")}catch(e){rej({code:"fail",err:e});return}
+        const s=t.objectStore("kv"),g=s.get("current");
+        g.onsuccess=()=>{const cur=g.result;if(cur&&cur.rev>expectRev){stale=cur;t.abort();return}try{s.put(st,"current")}catch(e){t.abort()}};
+        t.oncomplete=()=>res();
+        t.onabort=t.onerror=()=>rej(stale?{code:"stale",cur:stale}:{code:"fail",err:t.error});
+      });
+    },
+    async getRaw(k){return reqP(db.transaction("kv").objectStore("kv").get(k))},
+    async putRaw(k,v){const t=db.transaction("kv","readwrite");t.objectStore("kv").put(v,k);return txDone(t)},
+    async delRaw(k){const t=db.transaction("kv","readwrite");t.objectStore("kv").delete(k);return txDone(t)},
+    async addSnap(sn){const t=db.transaction("snaps","readwrite"),s=t.objectStore("snaps");s.add(sn);const keys=await reqP(s.getAllKeys());keys.slice(0,Math.max(0,keys.length+1-MAX_SNAPS)).forEach(k=>s.delete(k));return txDone(t)},
+    async pruneSnaps(keep){const t=db.transaction("snaps","readwrite"),s=t.objectStore("snaps");const keys=await reqP(s.getAllKeys());keys.slice(0,Math.max(0,keys.length-keep)).forEach(k=>s.delete(k));return txDone(t)},
+    async listSnaps(){return (await reqP(db.transaction("snaps").objectStore("snaps").getAll())).sort((a,b)=>b.t-a.t)}
+  };
+}
+function LsStore(){
+  return {kind:"local",
+    async getCurrent(){return lsGet(LS_CUR)},
+    async putCurrent(st,expectRev){const cur=lsGet(LS_CUR);if(cur&&cur.rev>expectRev)throw {code:"stale",cur};try{localStorage.setItem(LS_CUR,JSON.stringify(st))}catch(e){throw {code:"fail",err:e}}},
+    async getRaw(k){return lsGet("partsbin.v3."+k)},
+    async putRaw(k,v){if(!lsSet("partsbin.v3."+k,v))throw new Error("storage full")},
+    async delRaw(k){try{localStorage.removeItem("partsbin.v3."+k)}catch(e){}},
+    async addSnap(sn){const a=lsGet(LS_SNAPS)||[];a.push({...sn,id:Date.now()});let keep=MAX_SNAPS;while(keep>0&&!lsSet(LS_SNAPS,a.slice(-keep)))keep=Math.floor(keep/2)},
+    async pruneSnaps(keep){const a=lsGet(LS_SNAPS)||[];lsSet(LS_SNAPS,a.slice(-keep))},
+    async listSnaps(){return (lsGet(LS_SNAPS)||[]).sort((a,b)=>b.t-a.t)}
+  };
+}
+function MemStore(){let cur=null,sn=[],kv={};return {kind:"memory",async getCurrent(){return cur},async putCurrent(s){cur=s},async getRaw(k){return kv[k]},async putRaw(k,v){kv[k]=v},async delRaw(k){delete kv[k]},async addSnap(s){sn.push(s);sn=sn.slice(-MAX_SNAPS)},async pruneSnaps(k){sn=sn.slice(-k)},async listSnaps(){return [...sn].reverse()}}}
+
+/* ---------- state ---------- */
+let S=MemStore(),items=new Map(),rev=0,READONLY="",BOOTED=false;
+let meta={lastBackup:0,changesSinceBackup:0,changesSinceSnap:0,lastSnapDay:"",iosTipShown:false};
+let changeSeq=0,savedSeq=0,saving=Promise.resolve(),pendingOps=[],saveFails=0,retryT=null,bc=null;
+const listNow=()=>[...items.values()];
+const persistMeta=()=>lsSet(LS_META,meta);
+
+/* Every change is a pure function applied to a copy. If it throws or produces invalid data, the copy is thrown away. */
+function mutate(label,fn,opts){
+  if(READONLY){toast(READONLY);return false}
+  let next;
+  try{
+    const draft=new Map(listNow().map(i=>[i.id,clone(i)]));
+    fn(draft);
+    const r=validate([...draft.values()]);
+    if(!r.ok)throw new Error("the change produced invalid data");
+    if(r.items.length>=MAX_ITEMS&&draft.size>MAX_ITEMS)throw new Error(`a bin is limited to ${MAX_ITEMS} parts`);
+    next=r.items;
+  }catch(e){report(e,label);return false}
+  items=new Map(next.map(i=>[i.id,i]));
+  if(!(opts&&opts.noReplay))pendingOps.push(fn);
+  commit();safeRender();return true;
+}
+const putItem=(it,label)=>mutate(label||"saving a part",d=>{const n=norm(it);if(!n.name)throw new Error("a part needs a name");d.set(n.id,n)});
+const delItem=(id,label)=>mutate(label||"removing a part",d=>{d.delete(id)});
+const replaceAll=(list,label)=>mutate(label||"replacing the bin",d=>{d.clear();list.forEach(o=>{const n=norm(o);if(n.name)d.set(n.id,n)})});
+
+async function snapshot(reason){
+  try{const list=listNow().map(clone);await S.addSnap({t:Date.now(),reason,count:list.length,items:list,sum:sumOf(list)});return true}
+  catch(e){if(isQuota(e)){try{await S.pruneSnaps(3);return false}catch(_){}}report(e,"taking a snapshot");return false}
+}
+
+/* ---------- saving: serialized, locked across tabs, verified by reading back ---------- */
+function commit(){
+  changeSeq++;meta.changesSinceBackup++;persistMeta();setSave("busy");
+  saving=saving.then(writeNow).catch(e=>report(e,"saving"));
+  return saving;
+}
+async function writeOnce(st,expectRev){
+  try{await S.putCurrent(st,expectRev)}
+  catch(e){if(e&&e.code==="stale")throw e;if(isQuota(e)){await S.pruneSnaps(2).catch(()=>{});await S.putCurrent(st,expectRev)}else throw e}
+  const back=await S.getCurrent();
+  if(!back||back.rev!==st.rev||back.sum!==st.sum||sumOf(back.items)!==st.sum)throw new Error("saved data didn't match when read back");
+}
+async function writeNow(){
+  if(savedSeq===changeSeq||READONLY)return;
+  const seq=changeSeq,opsN=pendingOps.length;
+  const r=validate(listNow());
+  const st=makeState(r.items,rev+1);
+  try{
+    const run=()=>writeOnce(st,rev);
+    if(navigator.locks&&navigator.locks.request)await navigator.locks.request("partsbin-write",run);else await run();
+    rev=st.rev;savedSeq=seq;pendingOps.splice(0,opsN);saveFails=0;lastSavedAt=Date.now();
+    if(S.kind==="idb")lsSet(LS_CUR,st);
+    try{bc&&bc.postMessage({rev})}catch(e){}
+    meta.changesSinceSnap=(meta.changesSinceSnap||0)+1;
+    if(meta.changesSinceSnap>=20){meta.changesSinceSnap=0;persistMeta();await snapshot("every 20 changes")}
+    setSave(savedSeq===changeSeq?"ok":"busy");
+    scheduleFileBackup();
+  }catch(e){
+    if(e&&e.code==="stale"){await rebaseOnto(e.cur);return}
+    saveFails++;setSave("bad");report(e&&e.err||e,"saving");
+    clearTimeout(retryT);if(saveFails<6)retryT=setTimeout(()=>{saving=saving.then(writeNow).catch(x=>report(x,"saving"))},Math.min(30000,1000*2**saveFails));
+  }
+}
+/* another tab saved first: take its bin and replay our unsaved changes on top */
+async function rebaseOnto(cur){
+  const v=verify(cur);if(!v){saveFails++;setSave("bad");return}
+  const draft=new Map(v.items.map(i=>[i.id,i]));let dropped=0;
+  for(const fn of pendingOps){const before=new Map([...draft].map(([k,x])=>[k,clone(x)]));try{fn(draft)}catch(e){dropped++;draft.clear();before.forEach((x,k)=>draft.set(k,x))}}
+  const r=validate([...draft.values()]);
+  items=new Map(r.items.map(i=>[i.id,i]));rev=cur.rev;
+  safeRender();toast(dropped?`Merged with another tab. ${dropped} change${dropped>1?"s":""} couldn't apply.`:"Merged with changes from another tab.");
+  await writeNow();
+}
+async function flushNow(){try{await saving}catch(e){}}
+
+/* ---------- auto-backup to a real file (Chrome/Edge desktop) ---------- */
+const FS_OK=!IN_CLAUDE&&typeof window.showSaveFilePicker==="function"&&window.isSecureContext;
+let fileHandle=null,fileState="off",fileT=null,fileName="";
+async function loadFileHandle(){
+  if(!FS_OK)return;
+  try{fileHandle=await S.getRaw("fileHandle");if(!fileHandle){fileState="off";return}fileName=fileHandle.name||"backup file";
+    const p=await fileHandle.queryPermission({mode:"readwrite"});fileState=p==="granted"?"on":"paused"}catch(e){fileHandle=null;fileState="off"}
+}
+async function linkBackupFile(){
+  try{
+    const h=await window.showSaveFilePicker({suggestedName:"parts-bin-autobackup.json",types:[{description:"Parts Bin backup",accept:{"application/json":[".json"]}}]});
+    fileHandle=h;fileName=h.name;await S.putRaw("fileHandle",h);fileState="on";await writeBackupFile();toast(`Auto-backup on: every change is saved to ${fileName}`);
+  }catch(e){if(e&&e.name==="AbortError")return;report(e,"linking a backup file")}
+  setSave();
+}
+async function resumeBackupFile(){
+  if(!fileHandle)return;
+  try{const p=await fileHandle.requestPermission({mode:"readwrite"});fileState=p==="granted"?"on":"paused";if(fileState==="on")await writeBackupFile()}catch(e){report(e,"resuming auto-backup")}
+  setSave();
+}
+async function unlinkBackupFile(){fileHandle=null;fileState="off";try{await S.delRaw("fileHandle")}catch(e){}setSave()}
+function scheduleFileBackup(){if(fileState!=="on")return;clearTimeout(fileT);fileT=setTimeout(()=>writeBackupFile().catch(e=>report(e,"writing the backup file")),1200)}
+async function writeBackupFile(){
+  if(!fileHandle)return;
+  const p=await fileHandle.queryPermission({mode:"readwrite"});
+  if(p!=="granted"){fileState="paused";setSave();return}
+  const w=await fileHandle.createWritable();             // writes to a temp file, swapped in atomically on close
+  try{await w.write(exportJson());await w.close()}catch(e){try{await w.abort()}catch(_){}throw e}
+  meta.lastBackup=Date.now();meta.changesSinceBackup=0;persistMeta();fileState="on";setSave();
+}
+
+/* ---------- boot: never writes unless it loaded something valid ---------- */
+async function boot(){
+  const db=await openIdb();
+  if(db)S=IdbStore(db);else{let ok=false;try{localStorage.setItem("partsbin.probe","1");localStorage.removeItem("partsbin.probe");ok=true}catch(e){}S=ok?LsStore():MemStore()}
+  meta={...meta,...(lsGet(LS_META)||{})};
+  let note="",bad=false,loaded=null,cur=null;
+  try{cur=await S.getCurrent()}catch(e){report(e,"opening your bin")}
+  if(cur&&typeof cur==="object"&&+cur.v>DATA_VER){
+    READONLY="This bin was saved by a newer version of Parts Bin. Reload to get the update. It's read-only here so nothing gets lost.";
+    const v=verify(cur);loaded=v||{items:[]};rev=cur.rev||0;note=READONLY;bad=true;
+  }else{
+    const v=verify(cur);
+    if(v){loaded=v;rev=cur.rev||0;lastSavedAt=+cur.t||0;if(v.fixed)note=`Repaired ${v.fixed} damaged entr${v.fixed>1?"ies":"y"} while opening.`}
+    else{
+      if(cur){try{await S.putRaw("quarantine-"+Date.now(),cur)}catch(e){}}
+      const cands=[];
+      if(S.kind==="idb")cands.push(["the second copy",lsGet(LS_CUR)]);
+      let snaps=[];try{snaps=await S.listSnaps()}catch(e){}
+      snaps.forEach(sn=>cands.push([`the snapshot from ${fmt(sn.t)}`,sn]));
+      for(const [label,c] of cands){const vv=verify(c);if(vv){loaded=vv;rev=Math.max(cur&&cur.rev||0,c&&c.rev||0);if(cur)note=`Your saved bin was damaged. Recovered it from ${label}.`;break}}
+      if(!loaded&&cur){note="Your saved bin was damaged and no good copy was found. The damaged copy was kept aside. Import a backup file to restore your parts.";bad=true}
+      if(!loaded&&!cur){for(const k of LEGACY){const old=lsGet(k);if(Array.isArray(old)){const r=validate(old);if(r.items.length){loaded={items:r.items};note=`Moved ${r.items.length} part${r.items.length>1?"s":""} from the older version.`;break}}}}
+    }
+  }
+  items=new Map((loaded?loaded.items:[]).map(i=>[i.id,i]));
+  if(!READONLY&&loaded&&(note||!cur)&&items.size){changeSeq++;await (saving=saving.then(writeNow))}
+  else{savedSeq=changeSeq}
+  if(S.kind==="memory"){note="This browser is blocking storage, so nothing will be kept after you close the page. Save a backup file before leaving.";bad=true}
+  if(S.kind==="local"&&!note)note="";
+  showNotice(note,bad);
+  try{bc=new BroadcastChannel("partsbin");bc.onmessage=safe(async e=>{if(e.data&&e.data.rev>rev&&savedSeq===changeSeq){await flushNow();const c=await S.getCurrent();const vv=verify(c);if(vv&&c.rev>rev){rev=c.rev;items=new Map(vv.items.map(i=>[i.id,i]));safeRender();toast("Updated from another tab.")}}},"syncing tabs")}catch(e){}
+  const day=new Date().toISOString().slice(0,10);
+  if(!READONLY&&items.size&&meta.lastSnapDay!==day){meta.lastSnapDay=day;persistMeta();await snapshot("daily")}
+  if(items.size&&navigator.storage&&navigator.storage.persist){try{await navigator.storage.persist()}catch(e){}}
+  await loadFileHandle();
+  loadChat();
+  BOOTED=true;$("#app").hidden=false;$("#boot").hidden=true;
+  if(IN_CLAUDE){try{dl=await window.claude.use("downloads")}catch(e){dl=null}}
+  setSave();afterBoot();
+  setupInstall();
+}
+/* if boot itself crashes: show a screen that lets people rescue raw data, and write nothing */
+async function bootFailed(e){
+  report(e,"opening Parts Bin");
+  $("#boot").innerHTML=`<p><b>Parts Bin couldn't open.</b></p><p>Your saved data has not been changed. You can save a raw copy of it, then reload.</p><p><button class="btn pri" type="button" id="rescue">save raw data</button> <button class="btn" type="button" id="reload">reload</button></p><p class="muted">${esc(String(e&&e.message||e))}</p>`;
+  on("#reload","click",()=>location.reload());
+  on("#rescue","click",async()=>{
+    const dump={format:"parts-bin-rescue",when:new Date().toISOString(),localStorage:{}};
+    try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith("partsbin"))dump.localStorage[k]=lsRaw(k)}}catch(_){}
+    try{const db=await openIdb();if(db){const s=IdbStore(db);dump.current=await s.getCurrent().catch(()=>null);dump.snapshots=await s.listSnaps().catch(()=>[])}}catch(_){}
+    await saveFile(`parts-bin-rescue-${stamp()}.json`,JSON.stringify(dump),"application/json");
+  },"saving raw data");
+}
+
+
+/* ================= texting UI ================= */
+const CHAT_KEY="partsbin.v3.chat",MAX_CHAT=160,SHOW=90;
+let chat=[],soundOn=true,pendingNotes=[],dl=null,lastUndo=null,actx=null,installEvt=null;
+const undos=new Map();
+const ephemeral=new Map();          // message id -> data that isn't kept across reloads (import previews)
+
+/* ---------- feel: synthesized mechanical sounds, Android haptics, spring physics ---------- */
+let NOISE=null,lastBuzz=0;
+function ac(){actx=actx||new (window.AudioContext||window.webkitAudioContext)({latencyHint:"interactive"});if(actx.state==="suspended")actx.resume();return actx}
+function sfx(name,o){
+  if(!soundOn)return;
+  try{
+    const c=ac(),t=c.currentTime+0.002,out=c.createGain();out.gain.value=(o&&o.vol)||0.9;out.connect(c.destination);
+    if(!NOISE){NOISE=c.createBuffer(1,Math.ceil(c.sampleRate*0.6),c.sampleRate);const d=NOISE.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1}
+    /* a filtered noise burst = the "click" of plastic; a falling sine = the body "thump" */
+    const nz=(dur,f,q,g,at=0,type="bandpass")=>{const s=c.createBufferSource();s.buffer=NOISE;const fl=c.createBiquadFilter();fl.type=type;fl.frequency.value=f;fl.Q.value=q;const gn=c.createGain();gn.gain.setValueAtTime(0.0001,t+at);gn.gain.exponentialRampToValueAtTime(g,t+at+0.0015);gn.gain.exponentialRampToValueAtTime(0.0001,t+at+dur);s.connect(fl);fl.connect(gn);gn.connect(out);s.start(t+at,Math.random()*0.4,dur+0.03)};
+    const thump=(f0,f1,dur,g,at=0)=>{const os=c.createOscillator();os.type="sine";os.frequency.setValueAtTime(f0,t+at);os.frequency.exponentialRampToValueAtTime(f1,t+at+dur);const gn=c.createGain();gn.gain.setValueAtTime(0.0001,t+at);gn.gain.exponentialRampToValueAtTime(g,t+at+0.003);gn.gain.exponentialRampToValueAtTime(0.0001,t+at+dur);os.connect(gn);gn.connect(out);os.start(t+at);os.stop(t+at+dur+0.03)};
+    const r=o&&o.r||1;
+    switch(name){
+      case "down":nz(0.028,2600*r,1.1,0.5);thump(210*r,70,0.06,0.55);break;          /* key bottoms out */
+      case "up":nz(0.02,4800*r,2.2,0.22);thump(520*r,380,0.02,0.08);break;            /* key springs back */
+      case "tick":nz(0.014,3800*r,7,0.55);thump(1100*r,700,0.012,0.12);break;         /* detent while scrubbing */
+      case "send":thump(150,48,0.14,0.8);nz(0.05,1500,0.9,0.35);break;                /* deep thock */
+      case "pop":thump(380,760,0.05,0.12);break;                                      /* a reply lands */
+      case "zero":thump(170,52,0.28,0.7);nz(0.06,500,1.2,0.35);break;                 /* last one gone */
+      case "bump":thump(90,60,0.09,0.5);nz(0.03,900,1,0.2);break;                     /* hitting zero while dragging */
+      case "print":for(let i=0;i<16;i++)nz(0.011,3600+((i%3)*700),6,0.32,i*0.021);nz(0.3,2600,0.5,0.07,0.05,"highpass");break;
+      case "err":thump(120,95,0.18,0.55);thump(112,85,0.18,0.45,0.1);break;
+    }
+  }catch(e){}
+}
+function buzz(p,force){try{const n=performance.now();if(!force&&n-lastBuzz<28)return;lastBuzz=n;if(navigator.vibrate)navigator.vibrate(p)}catch(e){}}
+function feel(k,o){
+  if(k==="down"){sfx("down",o);buzz(12,true)}
+  else if(k==="up"){sfx("up",o)}
+  else if(k==="tick"){sfx("tick",o);buzz(7)}
+  else if(k==="tap"){sfx("up")}
+  else if(k==="send"){sfx("send");buzz(16,true)}
+  else if(k==="zero"){sfx("zero");buzz([14,40,22],true)}
+  else if(k==="bump"){sfx("bump");buzz(22,true)}
+  else if(k==="print"){sfx("print");buzz([6,16,6,16,6,16,6,16,6],true)}
+  else if(k==="pop"){sfx("pop")}
+  else if(k==="err"){sfx("err");buzz([30,40,30],true)}
+}
+
+/* a damped spring, stepped every frame */
+function springStep(s,k,c,dt){const a=-k*(s.x-s.to)-c*s.v;s.v+=a*dt;s.x+=s.v*dt;return Math.abs(s.v)<0.02&&Math.abs(s.x-s.to)<0.002}
+
+/* keys: press sinks fast and stiff, release springs back loose so it overshoots above rest */
+const KEYS=new WeakMap();
+function driveKey(el){
+  let s=KEYS.get(el);if(!s){s={x:0,v:0,to:0,raf:0};KEYS.set(el,s)}
+  if(s.raf)return;let last=performance.now();
+  const step=now=>{
+    const dt=Math.min(0.032,(now-last)/1000);last=now;
+    const pressing=s.to>0.5,done=springStep(s,pressing?3200:620,pressing?80:13,dt);
+    el.style.setProperty("--d",s.x.toFixed(3));
+    if(done||!el.isConnected){s.x=s.to;s.v=0;el.style.setProperty("--d",String(s.to));s.raf=0;return}
+    s.raf=requestAnimationFrame(step);
+  };
+  s.raf=requestAnimationFrame(step);
+}
+function pressKey(el,down){let s=KEYS.get(el);if(!s){s={x:0,v:0,to:0,raf:0};KEYS.set(el,s)}s.to=down?1:0;if(!down)s.v-=2.5;driveKey(el)}
+let heldKey=null;
+document.addEventListener("pointerdown",e=>{try{const k=e.target.closest&&e.target.closest(".key");if(!k||k.disabled)return;heldKey=k;pressKey(k,true);feel("down",{r:k.classList.contains("sm")?1.25:k.classList.contains("lg")?0.8:1})}catch(_){}},{passive:true});
+const releaseKey=()=>{try{if(heldKey){const k=heldKey;heldKey=null;pressKey(k,false);feel("up",{r:k.classList.contains("sm")?1.2:1})}}catch(_){}};
+document.addEventListener("pointerup",releaseKey,{passive:true});
+document.addEventListener("pointercancel",releaseKey,{passive:true});
+document.addEventListener("keydown",e=>{try{if((e.key===" "||e.key==="Enter")&&e.target.classList&&e.target.classList.contains("key")&&!e.repeat){pressKey(e.target,true);feel("down")}}catch(_){}});
+document.addEventListener("keyup",e=>{try{if((e.key===" "||e.key==="Enter")&&e.target.classList&&e.target.classList.contains("key")){pressKey(e.target,false);feel("up")}}catch(_){}});
+
+/* odometer: each digit is a strip that springs to its place and overshoots a little */
+const ODO=new WeakMap();
+function odoCols(odo,n){
+  const st=ODO.get(odo);odo.textContent="";st.cols=[];
+  for(let i=0;i<n;i++){const col=document.createElement("span");col.className="col";const strip=document.createElement("span");strip.className="strip";strip.innerHTML="0123456789".split("").map(d=>`<span>${d}</span>`).join("");col.appendChild(strip);odo.appendChild(col);st.cols.push({el:strip,x:0,v:0,to:0,raf:0})}
+}
+function driveCol(c){
+  if(c.raf)return;let last=performance.now();
+  const step=now=>{const dt=Math.min(0.032,(now-last)/1000);last=now;const done=springStep(c,340,19,dt);c.el.style.transform=`translateY(${(-c.x).toFixed(3)}em)`;if(done||!c.el.isConnected){c.x=c.to;c.el.style.transform=`translateY(${-c.to}em)`;c.raf=0;return}c.raf=requestAnimationFrame(step)};
+  c.raf=requestAnimationFrame(step);
+}
+function setOdo(odo,val){
+  let st=ODO.get(odo);const fresh=!st;if(!st){st={str:null,cols:[]};ODO.set(odo,st)}
+  const str=val===null||val===undefined?"?":String(val);if(st.str===str)return;
+  if(str==="?"){odo.textContent="?";st.cols=[];st.str=str;return}
+  const prev=st.str&&st.str!=="?"?st.str:"";
+  if(st.cols.length!==str.length){odoCols(odo,str.length);const p=prev.padStart(str.length,"0").slice(-str.length);st.cols.forEach((c,i)=>{c.x=fresh?+str[i]:+p[i]||0;c.el.style.transform=`translateY(${-c.x}em)`})}
+  str.split("").forEach((ch,i)=>{const c=st.cols[i];c.to=+ch;if(fresh){c.x=c.to;c.el.style.transform=`translateY(${-c.to}em)`}else driveCol(c)});
+  st.str=str;
+}
+
+/* ---------- chat log (not critical data; kept separately from the bin) ---------- */
+function loadChat(){const c=lsGet(CHAT_KEY);chat=Array.isArray(c)?c.filter(m=>m&&m.k&&m.id).slice(-MAX_CHAT):[];soundOn=meta.sound!==false}
+function saveChat(){try{lsSet(CHAT_KEY,chat.slice(-MAX_CHAT))}catch(e){}}
+function post(m){m.id=m.id||uid();m.t=Date.now();chat.push(m);if(BOOTED&&m.who==="bin")setTimeout(()=>feel("pop"),90);if(chat.length>MAX_CHAT+40)chat=chat.slice(-MAX_CHAT);saveChat();renderThread(true);return m}
+const say=(text,acts,extra)=>post({who:"bin",k:"text",text,acts:acts||[],...(extra||{})});
+const iSaid=text=>post({who:"me",k:"text",text});
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+
+/* things the core calls */
+const lc=t=>String(t).charAt(0).toLowerCase()+String(t).slice(1);
+function toast(msg,undo){if(undo)lastUndo=undo;if(BOOTED)say(lc(msg))}
+function showNotice(text,bad){if(!text)return;text=lc(text);if(BOOTED)say(text,[],bad?{tone:"bad"}:{});else pendingNotes.push([text,bad])}
+let lastErrSay=0;
+function binError(ctx){
+  if(!BOOTED)return;const now=Date.now();if(now-lastErrSay<1500)return;lastErrSay=now;feel("err");
+  say(`something broke while ${ctx}. ${savedSeq===changeSeq?"your parts are safe and saved":"your last change may not be saved yet, i'm retrying"}.`,[{l:"copy error report",a:"errcopy"}],{tone:"bad"});
+}
+let wasBad=false;
+function setSave(s){
+  try{
+    s=s||(READONLY?"ro":saveFails?"bad":savedSeq===changeSeq?"ok":"busy");
+    $("#dot").dataset.s=s;$("#dot").title=s==="bad"?"not saved":s==="busy"?"saving":s==="ro"?"read-only":"saved";
+    const all=listNow();$("#counts").textContent=`${all.length} parts · ${all.reduce((a,i)=>a+(i.qty||0),0)} pcs`;
+    if(s==="bad"&&!wasBad&&BOOTED){wasBad=true;say("can't save right now. i'll keep retrying. save a backup to be safe.",[{l:"save backup",a:"bk-json"}],{tone:"bad"})}
+    if(s==="ok"&&wasBad){wasBad=false;say("saved again. all good.")}
+    if(s==="ok"&&BOOTED&&items.size&&fileState!=="on"){
+      const n=meta.changesSinceBackup||0;
+      if(n>=30&&(!meta.nagAt||n-meta.nagAt>=30)){meta.nagAt=n;persistMeta();say(`${n} changes since your last backup. want one?`,[{l:"save backup",a:"bk-json"},{l:"not now",a:"noop"}])}
+    }
+  }catch(e){}
+}
+
+/* ---------- text export ("print") ---------- */
+const W=32;
+function lineLR(l,r){l=String(l);r=String(r);const room=W-r.length-3;if(l.length>room)l=l.slice(0,room-1)+"…";return l+" "+".".repeat(Math.max(1,W-l.length-r.length-2))+" "+r}
+const center=s=>{s=String(s).slice(0,W);const p=Math.floor((W-s.length)/2);return " ".repeat(p)+s};
+function receiptText(){
+  const all=listNow(),d=new Date();
+  const out=[center("PARTS BIN"),center(d.toLocaleDateString(undefined,{day:"2-digit",month:"short",year:"numeric"}).toUpperCase()+" "+hhmm(d)),center(`${all.length} PARTS · ${all.reduce((a,i)=>a+(i.qty||0),0)} PCS`),"=".repeat(W)];
+  const cats=[...new Set([...CATS,...all.map(i=>i.cat)])];
+  for(const c of cats){
+    const arr=all.filter(i=>i.cat===c).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));
+    if(!arr.length)continue;
+    out.push("",c.toUpperCase());
+    arr.forEach(i=>out.push(lineLR("  "+i.name,i.bulk?i.bulk.toUpperCase():i.qty===null?"?":i.qty)));
+  }
+  out.push("","=".repeat(W),center("keep building."));
+  return out.join("\n");
+}
+function exportRows(){return listNow().sort((a,b)=>a.cat.localeCompare(b.cat)||a.name.localeCompare(b.name)).map(r=>{const o={name:r.name,qty:r.qty,cat:r.cat};if(r.bulk)o.bulk=r.bulk;if(r.notes)o.notes=r.notes;return o})}
+function exportJson(){const rows=exportRows();return JSON.stringify({format:FORMAT,version:DATA_VER,app:APP_VERSION,exported:new Date().toISOString(),count:rows.length,checksum:sumOf(rows),items:rows},null,1)}
+const stamp=()=>new Date().toISOString().slice(0,10);
+async function saveFile(name,text,type){
+  try{
+    if(IN_CLAUDE){if(!dl){say("saving files isn't available here. use copy instead.");return false}await dl.save({filename:name,data:text});return true}
+    const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement("a");a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000);
+    return true;
+  }catch(e){if(e&&(e.name==="AbortError"||e.code==="declined"))return false;report(e,"saving a file");return false}
+}
+async function copyText(text,label){
+  try{await navigator.clipboard.writeText(text);feel("tap");flash(`${label} copied`);return true}
+  catch(e){say("copy was blocked here. long-press the text to copy it.");return false}
+}
+async function shareText(text){
+  try{await navigator.share({title:"Parts Bin",text});return true}catch(e){if(e&&e.name==="AbortError")return false;return copyText(text,"list")}
+}
+const canShare=()=>!IN_CLAUDE&&typeof navigator.share==="function";
+function markBackup(){meta.lastBackup=Date.now();meta.changesSinceBackup=0;meta.nagAt=0;persistMeta();setSave()}
+
+/* ---------- little floating confirmation above the composer ---------- */
+let flashT=null;
+function flash(t){const f=$("#flash");f.textContent=t;f.classList.add("on");clearTimeout(flashT);flashT=setTimeout(()=>f.classList.remove("on"),1400)}
+
+/* ---------- rendering ---------- */
+function safeRender(){try{renderThread(false);renderChips()}catch(e){report(e,"drawing the screen")}}
+function updateOut(){try{renderChips()}catch(e){}}
+function nearBottom(){const t=$("#thread");return t.scrollHeight-t.scrollTop-t.clientHeight<140}
+const NODES=new Map();
+function renderThread(stick){
+  const t=$("#thread");if(!t)return;const was=nearBottom()||stick;
+  const msgs=chat.slice(-SHOW);
+  if(!msgs.length&&!items.size){NODES.clear();t.innerHTML=welcomeHtml();return}
+  const keep=new Set();let prev=null;
+  for(const m of msgs){
+    let html="";try{html=msgHtml(m)}catch(e){report(e,"drawing a message")}
+    keep.add(m.id);let c=NODES.get(m.id);
+    if(!c||c.html!==html){
+      const tmp=document.createElement("div");tmp.innerHTML=html||"<div></div>";
+      const el=tmp.firstElementChild;el.dataset.msg=m.id;
+      if(c&&c.el.isConnected){el.classList.add("still");c.el.replaceWith(el)}
+      c={html,el};NODES.set(m.id,c);
+    }
+    const want=prev?prev.nextElementSibling:t.firstElementChild;
+    if(want!==c.el)t.insertBefore(c.el,want);
+    prev=c.el;
+  }
+  for(const [id,c] of NODES)if(!keep.has(id)){c.el.remove();NODES.delete(id)}
+  [...t.children].forEach(n=>{if(!n.dataset.msg)n.remove()});
+  t.querySelectorAll(".card.part").forEach(updatePart);
+  if(was)requestAnimationFrame(()=>{t.scrollTop=t.scrollHeight});
+}
+/* live bits of a part card are patched in place, so the odometer can roll instead of being redrawn */
+function updatePart(card){
+  const m=chat.find(x=>x.id===card.dataset.mid);const it=m&&items.get(m.pid);if(!it)return;
+  const odo=card.querySelector(".odo");
+  if(odo&&!(drag&&drag.card===card)){setOdo(odo,it.qty);const well=card.querySelector(".num");well.classList.toggle("zero",it.qty===0);well.classList.toggle("unk",it.qty===null);well.setAttribute("aria-label",`${it.name}: ${it.qty??"not counted"}. tap to add one, drag to change`)}
+  const dec=card.querySelector('[data-a="dec"]');if(dec)dec.toggleAttribute("disabled",!it.qty);
+  const lv=card.querySelector(".lvl");if(lv){lv.dataset.l=it.bulk;lv.textContent=it.bulk}
+  const ss=card.querySelector(".sess");if(ss)ss.innerHTML=m.from!==undefined&&m.to!==undefined&&m.from!==m.to?`${m.from??"?"} → ${m.to} · <button class="lnk" data-a="sessundo" data-mid="${m.id}">undo</button>`:"";
+}
+function welcomeHtml(){
+  return `<div class="m bin"><div class="tx">hey. i'm your parts bin.<br>paste the list you already have, or type a part like <b>2 esp32</b>.</div><div class="acts"><button class="key act pri" data-a="paste">paste a list</button><button class="key act" data-a="example">try an example</button></div></div>`;
+}
+const acts=list=>list&&list.length?`<div class="acts">${list.map(x=>`<button class="key act${x.p?" pri":""}" data-a="${esc(x.a)}"${x.v!==undefined?` data-v="${esc(x.v)}"`:""}>${esc(x.l)}</button>`).join("")}</div>`:"";
+function numHtml(it){
+  if(it.bulk)return `<button class="key lvl" data-a="level" data-pid="${esc(it.id)}"></button>`;
+  return `<div class="ctl"><button class="key big" data-a="dec" data-pid="${esc(it.id)}" aria-label="take one">−</button><div class="num" data-a="scrub" data-pid="${esc(it.id)}" role="button" tabindex="0"><span class="odo"></span></div><button class="key big" data-a="inc" data-pid="${esc(it.id)}" aria-label="add one">+</button></div>`;
+}
+function msgHtml(m){
+  if(m.who==="me")return `<div class="m me"><div class="bub">${esc(m.text)}</div></div>`;
+  const cls=`m bin${m.tone==="bad"?" bad":""}`;
+  switch(m.k){
+    case "text":return `<div class="${cls}"><div class="tx">${esc(m.text).replace(/\n/g,"<br>")}</div>${acts(m.acts)}</div>`;
+    case "part":{const it=items.get(m.pid);if(!it)return `<div class="${cls}"><div class="tx dim">that part was removed.</div></div>`;
+      return `<div class="${cls}"><div class="card part" data-mid="${m.id}"><div class="ph"><button class="pname" data-a="edit" data-pid="${esc(it.id)}">${esc(it.name)}</button><span class="pcat">${esc(it.cat.toLowerCase())}</span></div>${numHtml(it)}${it.notes?`<div class="pnote">${esc(it.notes)}</div>`:""}<div class="sess"></div></div></div>`}
+    case "change":{const it=items.get(m.pid);const u=undos.has(m.id)?` · <button class="lnk" data-a="undo" data-mid="${m.id}">undo</button>`:"";
+      return `<div class="${cls}"><div class="tx">${m.lead?esc(m.lead)+"<br>":""}<button class="lnk strong" data-a="open" data-pid="${esc(m.pid)}">${esc(it?it.name:m.name)}</button> <span class="mono">${m.from===null?m.to:`${m.from??"?"} → ${m.to}`}</span>${u}</div></div>`}
+    case "matches":{const rows=m.ids.map(id=>items.get(id)).filter(Boolean);
+      return `<div class="${cls}"><div class="tx">${esc(m.text||"")}</div><div class="card list">${rows.map(it=>`<button class="lrow" data-a="open" data-pid="${esc(it.id)}"><span>${esc(it.name)}</span><span class="mono">${it.bulk||(it.qty??"?")}</span></button>`).join("")}</div></div>`}
+    case "receipt":return `<div class="${cls}"><div class="tx">${esc(m.text||"here's everything.")}</div><pre class="rcpt${m.fresh?" fresh":""}">${esc(m.body).split("\n").map((l,i)=>`<span style="animation-delay:${Math.min(i,60)*14}ms">${l||" "}</span>`).join("\n")}</pre><div class="acts"><button class="key act pri" data-a="rc-copy" data-mid="${m.id}">copy</button>${canShare()?`<button class="key act" data-a="rc-share" data-mid="${m.id}">share</button>`:""}<button class="key act" data-a="rc-save" data-mid="${m.id}">save .txt</button></div></div>`;
+    case "import":return importHtml(m,cls);
+    case "backup":return backupHtml(m,cls);
+    case "history":return `<div class="${cls}"><div class="tx">snapshots i keep for you:</div><div class="card list" id="h-${m.id}"><div class="lrow dim">loading…</div></div></div>`;
+    case "help":return `<div class="${cls}"><div class="tx">things you can text me:</div><pre class="help">2 esp32        add 2
+-1 servo       take 1
+=5 oled        set to 5
+esp            find parts
+import         bring in a list
+storage        where your data lives
+print          your whole list
+backup         save or move your bin
+history        restore an older bin
+undo           undo the last change
+sound off      mute the clicks</pre><div class="tx dim">tap a number to add one. drag it up or down to change it fast. tap a name to edit it.</div></div>`;
+    default:return "";
+  }
+}
+function importHtml(m,cls){
+  const data=ephemeral.get(m.id);
+  if(!data||data.done)return `<div class="${cls}"><div class="tx dim">${data&&data.done?esc(data.done):"that import was closed."}</div></div>`;
+  const rows=data.rows;const keyed=new Map(listNow().map(i=>[keyOf(i.name),i]));
+  return `<div class="${cls}"><div class="tx">${esc(m.text)}</div><div class="card list imp">${rows.slice(0,300).map((r,k)=>{const ex=keyed.get(keyOf(r.name));return `<div class="irow"><span class="iname">${esc(r.name)}${ex?` <i>+ your ${ex.bulk||(ex.qty??"?")}</i>`:""}</span><span class="mono">${r.bulk||(r.qty??"?")}</span><button class="x" data-a="imp-drop" data-mid="${m.id}" data-v="${k}" aria-label="drop ${esc(r.name)}">×</button></div>`}).join("")}${rows.length>300?`<div class="irow dim">…and ${rows.length-300} more</div>`:""}</div>
+  <div class="acts"><button class="key act pri" data-a="imp-add" data-mid="${m.id}">add ${rows.length}</button>${items.size?`<button class="key act" data-a="imp-replace" data-mid="${m.id}">replace my bin</button>`:""}<button class="key act" data-a="imp-json" data-mid="${m.id}">copy as json</button><button class="key act" data-a="imp-cancel" data-mid="${m.id}">cancel</button></div></div>`;
+}
+function backupHtml(m,cls){
+  const lb=meta.lastBackup?fmt(meta.lastBackup):"never";
+  const auto=FS_OK?(fileState==="on"?`<button class="key act" data-a="bk-autooff">auto-backup is on · turn off</button>`:fileState==="paused"?`<button class="key act" data-a="bk-resume">resume auto-backup</button>`:`<button class="key act" data-a="bk-auto">auto-backup to a file</button>`):"";
+  return `<div class="${cls}"><div class="tx">your bin lives only on this phone, in this browser. clearing the browser deletes it, so keep a backup file somewhere safe.<br><span class="dim">last backup file: ${esc(lb)}</span></div><div class="acts">${(!IN_CLAUDE||dl)?`<button class="key act pri" data-a="bk-json">save backup</button>`:""}<button class="key act" data-a="bk-copy">copy backup</button><button class="key act" data-a="bk-load">load a backup</button>${auto}${installEvt?`<button class="key act" data-a="install">install app</button>`:""}<button class="key act" data-a="bk-wipe">empty the bin</button></div></div>`;
+}
+
+/* ---------- chips above the composer (one-thumb shortcuts) ---------- */
+function renderChips(){
+  const c=$("#chips");if(!c)return;const v=$("#inp").value;let h="";
+  if(!v.trim()){
+    const recent=listNow().sort((a,b)=>(b.updated||0)-(a.updated||0)).slice(0,8);
+    h+=`<button class="key sm chip k" data-a="print">print list</button>`;
+    if(lastUndo)h+=`<button class="key sm chip k" data-a="undo-last">undo</button>`;
+    h+=`<button class="key sm chip k" data-a="paste">paste a list</button><button class="key sm chip k" data-a="bk-load">open a file</button>`;
+    if(recent.length)h+=`<span class="sep" aria-hidden="true"></span>`;
+    h+=recent.map(it=>`<button class="key sm chip" data-a="open" data-pid="${esc(it.id)}">${esc(it.name)} <b>${it.bulk||(it.qty??"?")}</b></button>`).join("");
+    h+=`<button class="key sm chip k" data-a="backup">backup</button><button class="key sm chip k" data-a="help">help</button>`;
+  }else if(!/\n/.test(v)&&!/^\s*[:?]/.test(v)){
+    const c2=parseCmd(v);
+    if(c2){
+      const ms=findByName(c2.p.name);
+      const explicit=c2.op||c2.n!==null;
+      if(explicit){const one=ms.length===1?ms[0]:null;h+=`<button class="key sm chip go" data-a="send">${esc(c2.op==="-"?"take":c2.op==="="?"set":"add")} ${c2.op==="="?"to "+(c2.n??0):(c2.n??1)} · ${esc(one?one.name:c2.p.name)}${one||ms.length===0?"":" …"}</button>`}
+      h+=ms.slice(0,8).map(it=>`<button class="key sm chip" data-a="open" data-pid="${esc(it.id)}">${esc(it.name)} <b>${it.bulk||(it.qty??"?")}</b></button>`).join("");
+      if(!ms.length&&!explicit)h+=`<button class="key sm chip go" data-a="send">add ${esc(c2.p.name)}</button>`;
+    }
+  }
+  c.innerHTML=h;
+}
+
+/* ---------- what happens when you send something ---------- */
+function findByName(term,list){
+  const all=list||listNow(),k=keyOf(term);if(!k)return[];
+  const exact=all.filter(i=>keyOf(i.name)===k);if(exact.length)return exact;
+  const toks=k.split(" ");return all.filter(i=>{const h=keyOf(i.name);return toks.every(t=>h.includes(t))});
+}
+function parseCmd(text){
+  const m=String(text).match(/^\s*([+\-=])\s*(.*)$/);const op=m?m[1]:"",rest=m?m[2]:String(text);
+  const p=parseLine(rest);if(!p)return null;
+  const explicitN=/^\s*\d/.test(rest)||/[x×]\s*\d+\s*$/i.test(rest);
+  return {op,n:explicitN?p.qty:null,p};
+}
+
+function openPart(id){const it=items.get(id);if(!it)return;feel("tap");post({who:"bin",k:"part",pid:id})}
+function applyCount(id,op,k,quietMsg){
+  const it=items.get(id);if(!it)return null;
+  if(it.bulk){say(`${it.name} is tracked by level. tap the level to change it.`);return null}
+  const before=clone(it),cur=it.qty??0,nx=op==="="?k:op==="-"?Math.max(0,cur-k):cur+k;
+  if(nx===it.qty)return {before,after:it.qty,same:true};
+  const ok=mutate("changing a count",d=>{const x=d.get(id);if(!x)throw new Error("that part no longer exists");if(x.bulk)return;const c=x.qty??0;x.qty=op==="="?k:op==="-"?Math.max(0,c-k):c+k});
+  if(!ok)return null;
+  lastUndo=()=>mutate("undoing",d=>{if(d.has(id))d.set(id,before)});
+  return {before,after:nx};
+}
+function handleInput(raw){
+  const text=String(raw).replace(/\s+$/,"");if(!text.trim())return;
+  if(text.length>MAX_IMPORT_BYTES){say("that's too much text at once (5 MB limit).");return}
+  const lines=text.split(/\r?\n/).filter(l=>l.trim());
+  /* commands */
+  const cmd=text.trim().toLowerCase().replace(/^[:/?]/,"");
+  if(lines.length===1){
+    if(/^(print|list|export|receipt|all|everything)$/.test(cmd)){iSaid(text);doPrint();return}
+    if(/^(import|import a list|import list|paste|paste a list|add list|add a list|load|upload|open|open file)$/.test(cmd)){iSaid(text);say("three ways to bring a list in:\n1. paste it right here in the message box and send it, one part per line\n2. tap paste from clipboard\n3. open a .txt, .csv or backup .json file",[{l:"paste from clipboard",a:"paste",p:1},{l:"open a file",a:"bk-load"}]);return}
+    if(/^(storage|where|data|privacy|security|secure|where is my data|is it safe|info)$/.test(cmd)){iSaid(text);doStorage();return}
+    if(/^(backup|back up|save)$/.test(cmd)){iSaid(text);post({who:"bin",k:"backup"});return}
+    if(/^(history|snapshots|restore)$/.test(cmd)){iSaid(text);doHistory();return}
+    if(/^undo$/.test(cmd)){iSaid(text);doUndo();return}
+    if(/^(help|\?|commands)$/.test(cmd)||text.trim()==="?"){iSaid(text);post({who:"bin",k:"help"});return}
+    if(/^sound (on|off)$/.test(cmd)){iSaid(text);soundOn=cmd.endsWith("on");meta.sound=soundOn;persistMeta();say(soundOn?"clicks on.":"muted.");return}
+    if(/^(clear|clear chat)$/.test(cmd)){chat=[];saveChat();say("chat cleared. your parts are untouched.");return}
+  }
+  /* a list (several lines, a backup file, or a comma list) */
+  const looksList=lines.length>1||/^\s*[\[{]/.test(text)||(/,/.test(text)&&text.split(",").filter(s=>s.trim()).length>=3);
+  if(looksList){iSaid(/^\s*[\[{]/.test(text)?"pasted a backup":lines.length>1?`${lines[0]}\n…and ${lines.length-1} more`:text.slice(0,140));startImport(text,/^\s*[\[{]/.test(text)?"a pasted backup":"a list you sent");return}
+  /* a single part */
+  iSaid(text);
+  const c=parseCmd(text);if(!c){say("didn't get that. try 2 esp32, or text help.");return}
+  const ms=findByName(c.p.name);
+  const explicit=c.op||c.n!==null;
+  if(!explicit){
+    if(ms.length===1){post({who:"bin",k:"part",pid:ms[0].id});return}
+    if(ms.length>1){post({who:"bin",k:"matches",ids:ms.slice(0,40).map(i=>i.id),text:`${ms.length} matches:`});return}
+    say(`no ${c.p.name} in here yet.`,[{l:`add 1 ${c.p.name}`,a:"addnew",v:c.p.name,p:1}]);return;
+  }
+  if(ms.length>1&&!ms.some(i=>keyOf(i.name)===keyOf(c.p.name))){post({who:"bin",k:"matches",ids:ms.slice(0,40).map(i=>i.id),text:`which one? ${ms.length} match ${c.p.name}.`});return}
+  if(ms.length>=1){
+    const it=ms.find(i=>keyOf(i.name)===keyOf(c.p.name))||ms[0];
+    const r=applyCount(it.id,c.op||"+",c.n??1);if(!r)return;
+    const m=post({who:"bin",k:"change",pid:it.id,name:it.name,from:r.before.qty,to:r.after,lead:r.after===0&&!r.same?pick([`last ${it.name} gone.`,`out of ${it.name}. noted.`,`that was the last one.`]):""});
+    undos.set(m.id,lastUndo);renderThread(true);if(r.after===0&&!r.same)feel("zero");return;
+  }
+  if(c.op==="-"){say(`no ${c.p.name} in here to take.`);return}
+  addNew(c.p,c.op==="="?(c.n??0):c.p.qty,`you texted "${text.trim()}"`);
+}
+function addNew(p,qty,src){
+  const n=norm({...p,qty:p.bulk?null:qty,added:Date.now(),src:src||"added by hand"});
+  if(!mutate("adding a part",d=>{d.set(n.id,n)}))return;
+  lastUndo=()=>delItem(n.id,"undoing");
+  const m=post({who:"bin",k:"change",pid:n.id,name:n.name,from:null,to:n.bulk||(n.qty??"?"),lead:pick([`new in the bin.`,`welcome aboard.`,`moved in.`])});
+  undos.set(m.id,lastUndo);renderThread(true);feel("send");
+}
+function startImport(text,src){
+  let res={rows:[]},warn="";
+  try{const d=JSON.parse(text);if(d&&d.format===FORMAT&&Array.isArray(d.items)&&d.checksum&&sumOf(d.items)!==d.checksum)warn=" heads up: this backup was edited or damaged after it was saved, check the lines."}catch(e){}
+  try{res=parseAny(text)}catch(e){report(e,"reading your list")}
+  const rows=res.rows.slice(0,MAX_ITEMS).filter(r=>r&&String(r.name).trim());
+  if(!rows.length){say("couldn't find any parts in that.");return}
+  const id=uid();ephemeral.set(id,{rows,src:src||"an import"});
+  post({id,who:"bin",k:"import",text:`found ${rows.length} part${rows.length>1?"s":""}. tap × on anything wrong.${warn}`,tone:warn?"bad":""});
+}
+async function finishImport(mid,replace){
+  const data=ephemeral.get(mid);if(!data||data.done||!data.rows.length)return;
+  if(READONLY){say(lc(READONLY));return}
+  await flushNow();await snapshot(replace?"before replace":"before import");
+  const prev=listNow().map(clone);let added=0,updated=0;
+  const rows=data.rows;
+  const ok=mutate(replace?"replacing the bin":"importing",d=>{
+    if(replace)d.clear();added=0;updated=0;
+    const keyed=new Map([...d.values()].map(i=>[keyOf(i.name),i]));
+    rows.forEach(r=>{const ex=keyed.get(keyOf(r.name));
+      if(ex){if(r.bulk){ex.bulk=r.bulk;ex.qty=null}else if(!ex.bulk&&r.qty!==null)ex.qty=Math.min(999999,(ex.qty??0)+r.qty);if(r.notes&&!ex.notes)ex.notes=r.notes;updated++}
+      else{const n=norm({...r,added:Date.now(),src:`imported from ${data.src}`});d.set(n.id,n);keyed.set(keyOf(n.name),n);added++}});
+  });
+  if(!ok)return;
+  data.done=replace?"swapped into your bin.":"added to your bin.";
+  lastUndo=()=>replaceAll(prev,"undoing the import");
+  feel("print");
+  say(added+updated>=40?`${added} new, ${updated} topped up. that's a proper stash.`:`${added} new, ${updated} topped up.`,[{l:"undo import",a:"undo-last"},{l:"print list",a:"print"}]);
+}
+function doPrint(){
+  if(!items.size){say("nothing to print yet. add a few parts first.");return}
+  feel("print");
+  const m=post({who:"bin",k:"receipt",body:receiptText(),text:pick(["here's everything.","fresh off the printer.","your whole bin:"]),fresh:true});
+  setTimeout(()=>{m.fresh=false;saveChat()},1500);
+}
+async function doHistory(){
+  const m=post({who:"bin",k:"history"});
+  let snaps=[];try{snaps=await S.listSnaps()}catch(e){report(e,"listing snapshots")}
+  ephemeral.set(m.id,{snaps});
+  const el=document.getElementById("h-"+m.id);if(!el)return;
+  el.innerHTML=snaps.length?snaps.map((s,k)=>{const ok=!!verify(s);return `<div class="irow"><span class="iname">${esc(fmt(s.t))}<i> · ${esc(s.reason)} · ${esc(s.count)} parts</i></span>${ok&&!READONLY?`<button class="key act" data-a="h-restore" data-mid="${m.id}" data-v="${k}">restore</button>`:`<span class="dim">damaged</span>`}</div>`}).join(""):`<div class="irow dim">no snapshots yet. i take one daily, every 20 changes, and before big changes.</div>`;
+}
+async function doStorage(){
+  let est=null,pers=null,snaps=0;
+  try{est=navigator.storage&&navigator.storage.estimate?await navigator.storage.estimate():null}catch(e){}
+  try{pers=navigator.storage&&navigator.storage.persisted?await navigator.storage.persisted():null}catch(e){}
+  try{snaps=(await S.listSnaps()).length}catch(e){}
+  const kb=n=>n<1024?n+" B":n<1048576?(n/1024).toFixed(1)+" KB":(n/1048576).toFixed(1)+" MB";
+  const host=location.protocol==="file:"?"a file on this device":(location.host||"this page");
+  const lines=[
+    `where: only in this browser on this device, under ${host}.`,
+    `how: ${S.kind==="idb"?"the browser's database (IndexedDB), plus a second copy in its local storage":S.kind==="local"?"the browser's local storage":"memory only, nothing is kept after closing"}.`,
+    `your bin: ${items.size} parts, ${kb(JSON.stringify(listNow()).length)}${est&&est.usage?` (everything this site stores: ${kb(est.usage)})`:""}.`,
+    `snapshots: ${snaps} of ${MAX_SNAPS}.`,
+    `protected from automatic cleanup: ${pers===true?"yes":pers===false?"no, the browser may clear it if the phone runs out of space":"unknown"}.`,
+    `last saved: ${lastSavedAt?fmt(lastSavedAt):"not this session"}. last backup file: ${meta.lastBackup?fmt(meta.lastBackup):"never"}.`,
+    `sent anywhere: never. the app makes no network requests with your parts.`
+  ];
+  say(lines.join("\n"),[{l:"save backup",a:"bk-json",p:1}]);
+}
+function doUndo(){if(!lastUndo){say("nothing to undo.");return}const f=lastUndo;lastUndo=null;f();feel("down");say("undone.")}
+
+/* ---------- taps ---------- */
+async function act(a,el){
+  const pid=el.dataset.pid,mid=el.dataset.mid,v=el.dataset.v;
+  switch(a){
+    case "send":return sendNow();
+    case "open":return openPart(pid);
+    case "inc":case "dec":{const r=applyCount(pid,a==="inc"?"+":"-",1);if(r&&!r.same){if(r.after===0)feel("zero");trackSession(el,r)}return}
+    case "level":{const it=items.get(pid);if(!it)return;const o=["plenty","low","out"],nx=o[(o.indexOf(it.bulk)+1)%3],before=clone(it);if(mutate("changing a level",d=>{const x=d.get(pid);if(x)x.bulk=nx})){lastUndo=()=>mutate("undoing",d=>{if(d.has(pid))d.set(pid,before)});feel(nx==="out"?"zero":"tap")}return}
+    case "edit":return openEdit(items.get(pid));
+    case "undo":{const f=undos.get(mid);if(f){undos.delete(mid);f();feel("down");lastUndo=null;safeRender()}return}
+    case "sessundo":{const m=chat.find(x=>x.id===mid);if(!m)return;const it=items.get(m.pid);if(!it)return;applyCount(m.pid,"=",m.from??0);delete m.from;delete m.to;saveChat();feel("down");safeRender();return}
+    case "undo-last":return doUndo();
+    case "print":return doPrint();
+    case "backup":feel("tap");return post({who:"bin",k:"backup"});
+    case "help":feel("tap");return post({who:"bin",k:"help"});
+    case "paste":{feel("tap");let t="";try{if(navigator.clipboard&&navigator.clipboard.readText)t=await navigator.clipboard.readText()}catch(e){}
+      if(t&&t.trim()){iSaid("pasted from clipboard");startImport(t,"your clipboard");return}
+      $("#inp").placeholder="paste your list here, one part per line";$("#inp").focus();say("long-press the message box, paste your list, then send it.");return}
+    case "example":{handleInput("2 esp32\n5 OLED screens\n1esp8266\nRaspberry pi pico\nA bunch of 7 segment displays\nRelays\nservo x2\n3 lm386 audio amps\nlogic analyzer");return}
+    case "addnew":{const p=parseLine(v);if(p)addNew(p,1,`you tapped "add 1 ${v}"`);return}
+    case "imp-drop":{const d=ephemeral.get(mid);if(d&&!d.done){d.rows.splice(+v,1);feel("down");if(!d.rows.length)d.done="nothing left to import.";renderThread(false)}return}
+    case "imp-add":return finishImport(mid,false);
+    case "imp-replace":{const d=ephemeral.get(mid);if(!d)return;if(!d.armed){d.armed=true;el.textContent=`replace all ${items.size}? tap again`;return}return finishImport(mid,true)}
+    case "imp-json":{const d=ephemeral.get(mid);if(d)copyText(JSON.stringify(d.rows.map(({name,qty,bulk,cat,notes})=>({name,qty:bulk?null:qty,...(bulk?{bulk}:{}),cat,...(notes?{notes}:{})})),null,2),"json");return}
+    case "imp-cancel":{const d=ephemeral.get(mid);if(d){d.done="import cancelled.";renderThread(false)}return}
+    case "rc-copy":case "rc-share":case "rc-save":{const m=chat.find(x=>x.id===mid);if(!m)return;const body=m.body;
+      if(a==="rc-copy")return copyText(body,"list");if(a==="rc-share")return shareText(body);
+      if(await saveFile(`parts-bin-${stamp()}.txt`,body,"text/plain"))flash("saved");return}
+    case "bk-json":{await flushNow();if(await saveFile(`parts-bin-${stamp()}.json`,exportJson(),"application/json")){markBackup();say("backup saved. keep it somewhere safe, like your cloud drive.")}return}
+    case "bk-copy":{if(await copyText(exportJson(),"backup"))markBackup();return}
+    case "bk-load":return $("#fileIn").click();
+    case "bk-auto":await linkBackupFile();return safeRender();
+    case "bk-resume":await resumeBackupFile();return safeRender();
+    case "bk-autooff":await unlinkBackupFile();say("auto-backup off.");return;
+    case "bk-wipe":{if(!el.dataset.armed){el.dataset.armed="1";el.textContent=`delete all ${items.size} parts? tap again`;return}
+      await flushNow();await snapshot("before emptying");const prev=listNow().map(clone);
+      if(replaceAll([],"emptying the bin")){lastUndo=()=>replaceAll(prev,"undoing");feel("zero");say("bin emptied. a snapshot was kept.",[{l:"undo",a:"undo-last"}])}return}
+    case "h-restore":{const d=ephemeral.get(mid);const s=d&&d.snaps[+v];const vv=verify(s);if(!vv){say("that snapshot is damaged.");return}
+      await flushNow();await snapshot("before restore");const prev=listNow().map(clone);
+      if(replaceAll(vv.items,"restoring a snapshot")){lastUndo=()=>replaceAll(prev,"undoing the restore");feel("print");say(`restored ${vv.items.length} parts from ${fmt(s.t)}.`,[{l:"undo",a:"undo-last"}])}return}
+    case "install":{if(!installEvt)return;installEvt.prompt();try{await installEvt.userChoice}catch(e){}installEvt=null;return}
+    case "errcopy":return copyText(JSON.stringify({app:APP_VERSION,ua:navigator.userAgent,storage:S.kind,errors:ERRLOG},null,1),"error report");
+    case "noop":return;
+  }
+}
+/* the part card remembers where this burst of taps started, so one undo takes it all back */
+function trackSession(el,r){
+  const card=el.closest(".card.part");if(!card)return;const m=chat.find(x=>x.id===card.dataset.mid);if(!m)return;
+  if(m.to===undefined||Date.now()-(m.st||0)>8000){m.from=r.before.qty}
+  m.to=r.after;m.st=Date.now();saveChat();updatePart(card);
+}
+
+/* ---------- drag the number: detents, momentum, rubber band at zero ---------- */
+const STEP=16;let drag=null;
+function scrubTo(d,raw){
+  const steps=Math.trunc(raw/STEP);let val=d.base+steps,over=0;
+  if(val<0){over=(-(d.base*STEP)-raw)/STEP;val=0}
+  val=Math.min(9999,val);
+  const stretch=over>0?Math.min(26,over*STEP*0.35):0;
+  d.odo.style.transform=stretch?`translateY(${stretch.toFixed(1)}px) scaleY(${(1-stretch/220).toFixed(3)})`:"";
+  if(over>0&&!d.bumped){d.bumped=true;feel("bump")}if(over<=0)d.bumped=false;
+  if(val!==d.cur){feel("tick",{r:val>d.cur?1.08:0.92});d.cur=val;setOdo(d.odo,val);d.well.classList.toggle("zero",val===0)}
+}
+function springBack(el){
+  const m=el.style.transform.match(/translateY\(([-\d.]+)px/);const s={x:m?parseFloat(m[1]):0,v:0,to:0};
+  if(!s.x){el.style.transform="";return}let last=performance.now();
+  const step=now=>{const dt=Math.min(.032,(now-last)/1000);last=now;const done=springStep(s,520,14,dt);el.style.transform=done?"":`translateY(${s.x.toFixed(2)}px)`;if(!done)requestAnimationFrame(step)};
+  requestAnimationFrame(step);
+}
+function commitDrag(d){
+  drag=null;d.well.classList.remove("held");springBack(d.odo);
+  if(d.cur!==d.base){const r=applyCount(d.pid,"=",d.cur);if(r&&!r.same){if(d.cur===0)feel("zero");trackSession(d.well,r)}}
+  else updatePart(d.card);
+}
+on("#thread","pointerdown",e=>{
+  if(drag&&drag.coasting){cancelAnimationFrame(drag.raf);commitDrag(drag)}
+  const n=e.target.closest(".num");if(!n)return;
+  const it=items.get(n.dataset.pid);if(!it||it.bulk)return;
+  drag={well:n,odo:n.querySelector(".odo"),card:n.closest(".card.part"),pid:it.id,y0:e.clientY,base:it.qty??0,cur:it.qty??0,moved:false,pointer:e.pointerId,hist:[[performance.now(),e.clientY]]};
+  try{n.setPointerCapture(e.pointerId)}catch(_){}
+  n.classList.add("held");feel("down",{r:0.9});
+},"starting a drag");
+on("#thread","pointermove",e=>{
+  const d=drag;if(!d||d.coasting||e.pointerId!==d.pointer)return;
+  const dy=d.y0-e.clientY;if(Math.abs(dy)>6)d.moved=true;if(!d.moved)return;
+  e.preventDefault();d.hist.push([performance.now(),e.clientY]);if(d.hist.length>6)d.hist.shift();
+  scrubTo(d,dy);
+},"dragging");
+function endDrag(e,cancel){
+  const d=drag;if(!d||d.coasting||(e&&e.pointerId!==d.pointer))return;
+  if(cancel){drag=null;d.well.classList.remove("held");setOdo(d.odo,d.base);springBack(d.odo);return}
+  if(!d.moved){drag=null;d.well.classList.remove("held");feel("up");const r=applyCount(d.pid,"+",1);if(r&&!r.same)trackSession(d.well,r);return}
+  /* a flick keeps counting with the finger's speed and slows down like a wheel */
+  const h=d.hist,a=h[0],z=h[h.length-1],vel=z[0]>a[0]?(a[1]-z[1])/(z[0]-a[0]):0;
+  if(Math.abs(vel)<0.35){commitDrag(d);return}
+  d.coasting=true;let v=vel,pos=d.y0-z[1],last=performance.now();
+  const step=now=>{
+    try{const dt=now-last;last=now;pos+=v*dt;v*=Math.pow(0.9935,dt);scrubTo(d,pos);
+      if(Math.abs(v)<0.05||(d.cur===0&&v<0)||d.cur>=9999||!d.well.isConnected){commitDrag(d);return}
+      d.raf=requestAnimationFrame(step)}catch(err){report(err,"spinning the counter");try{commitDrag(d)}catch(_){drag=null}}
+  };
+  d.raf=requestAnimationFrame(step);
+}
+on("#thread","pointerup",e=>endDrag(e,false),"finishing a drag");
+on("#thread","pointercancel",e=>endDrag(e,true),"cancelling a drag");
+on("#thread","keydown",e=>{
+  const n=e.target.closest&&e.target.closest(".num");if(!n)return;
+  if(e.key==="ArrowUp"||e.key==="Enter"||e.key===" "){e.preventDefault();const r=applyCount(n.dataset.pid,"+",1);if(r&&!r.same){feel("tick");trackSession(n,r)}}
+  else if(e.key==="ArrowDown"){e.preventDefault();const r=applyCount(n.dataset.pid,"-",1);if(r&&!r.same){feel("tick",{r:.9});trackSession(n,r)}}
+},"using the keyboard");
+on("#thread","click",e=>{const b=e.target.closest("[data-a]");if(!b)return;if(b.dataset.a==="scrub")return;act(b.dataset.a,b)},"handling a tap");
+on("#chips","click",e=>{const b=e.target.closest("[data-a]");if(b)act(b.dataset.a,b)},"handling a tap");
+
+/* ---------- composer ---------- */
+function grow(){const i=$("#inp");i.style.height="auto";i.style.height=Math.min(140,i.scrollHeight)+"px"}
+function sendNow(){
+  const i=$("#inp"),v=i.value;if(!v.trim())return;
+  if(READONLY&&!/^\s*[:?]?(print|list|export|help|history|backup)\b/i.test(v.trim())){say(lc(READONLY));return}
+  i.value="";i.placeholder="type a part…";grow();feel("send");
+  handleInput(v);renderChips();
+}
+on("#sendForm","submit",e=>{e.preventDefault();sendNow()},"sending");
+on("#inp","keydown",e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();sendNow()}},"typing");
+on("#inp","input",()=>{grow();renderChips()},"typing");
+on("#hdBtn","click",()=>{feel("tap");post({who:"bin",k:"help"})},"opening help");
+on("#fileIn","change",async()=>{
+  const f=$("#fileIn").files[0];$("#fileIn").value="";if(!f)return;
+  if(f.size>MAX_IMPORT_BYTES){say(`that file is ${(f.size/1e6).toFixed(1)} MB. i take up to 5 MB.`);return}
+  let text="";try{text=await f.text()}catch(e){say("couldn't read that file.");return}
+  if(/\u0000/.test(text.slice(0,2000))){say("that looks like a binary file, not a list.");return}
+  iSaid(f.name);startImport(text,`the file ${f.name}`);
+},"reading the file");
+on(document,"keydown",e=>{
+  if(document.querySelector("dialog[open]"))return;
+  const t=e.target;if(t.matches&&t.matches("input,textarea,select"))return;
+  if(e.metaKey||e.ctrlKey||e.altKey)return;
+  if(e.key==="/"||e.key==="n"){e.preventDefault();$("#inp").focus()}
+},"using the keyboard");
+
+/* ---------- edit sheet ---------- */
+let editing=null,delArmed=false;
+function openEdit(it){
+  if(!it)return;editing=it.id;delArmed=false;$("#eDel").textContent="remove";
+  $("#eName").value=it.name;$("#eCat").value=it.cat;$("#eQty").value=it.qty??"";$("#eBulk").value=it.bulk;$("#eQty").disabled=!!it.bulk;$("#eNotes").value=it.notes;
+  $("#eSrc").textContent=it.added?`added ${fmt(it.added)} · ${it.src||""}`:"added before the app started tracking this.";
+  $("#catList").innerHTML=[...new Set([...CATS,...listNow().map(i=>i.cat)])].map(c=>`<option value="${esc(c)}">`).join("");
+  const d=$("#dEdit");try{d.showModal()}catch(e){d.setAttribute("open","")}feel("tap");
+}
+on("#eBulk","change",()=>{$("#eQty").disabled=!!$("#eBulk").value});
+on("#dEdit","click",e=>{if(e.target===$("#dEdit")||e.target.closest("[data-close]"))$("#dEdit").close()});
+on("#editForm","submit",e=>{
+  e.preventDefault();const prev=items.get(editing);if(!prev){$("#dEdit").close();say("that part was removed in another tab.");return}
+  const before=clone(prev),name=$("#eName").value.trim();if(!name){$("#eName").focus();return}
+  const qv=$("#eQty").value.trim();if(qv!==""&&!$("#eBulk").value&&!/^\d+$/.test(qv)){$("#eQty").focus();return}
+  const next={...before,name,cat:$("#eCat").value,qty:qv,bulk:$("#eBulk").value,notes:$("#eNotes").value};
+  if(mutate("saving a part",d=>{if(!d.has(before.id))throw new Error("that part no longer exists");d.set(before.id,norm(next))})){$("#dEdit").close();lastUndo=()=>mutate("undoing",d=>{d.set(before.id,before)});feel("tap");flash("saved")}
+},"saving the part");
+on("#eDel","click",()=>{
+  if(!delArmed){delArmed=true;$("#eDel").textContent="tap again to remove";return}
+  const before=clone(items.get(editing));$("#dEdit").close();
+  if(delItem(editing)){lastUndo=()=>mutate("undoing",d=>{d.set(before.id,before)});feel("zero");say(`${before.name} is out of the bin.`,[{l:"undo",a:"undo-last"}])}
+},"removing the part");
+
+/* ---------- after the core has loaded ---------- */
+function afterBoot(){
+  renderThread(true);renderChips();
+  pendingNotes.forEach(([t,b])=>say(t,[],b?{tone:"bad"}:{}));pendingNotes=[];
+  if(!chat.length&&items.size)say(`welcome back. ${items.size} parts in the bin.`,[{l:"print list",a:"print"}]);
+}
+
+/* ---------- leaving the page ---------- */
+window.addEventListener("beforeunload",e=>{if(BOOTED&&savedSeq!==changeSeq){e.preventDefault();e.returnValue="";return ""}});
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&savedSeq!==changeSeq){saving=saving.then(writeNow).catch(()=>{})}});
+window.addEventListener("online",()=>{if(savedSeq!==changeSeq){saving=saving.then(writeNow).catch(()=>{})}});
+
+/* ---------- web app: offline, install, updates ---------- */
+function setupInstall(){
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+  const standalone=(window.matchMedia&&matchMedia("(display-mode: standalone)").matches)||navigator.standalone===true;
+  if(ios&&!standalone&&!IN_CLAUDE&&location.protocol==="https:"&&!meta.iosTipShown){
+    showNotice("tip: tap share → add to home screen. as a home-screen app, safari won't clear your bin after a week away.",false);meta.iosTipShown=true;persistMeta();
+  }
+}
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;if(BOOTED&&!meta.installOffered){meta.installOffered=true;persistMeta();say("you can install me as an app. works offline, opens like any other app.",[{l:"install app",a:"install",p:1},{l:"not now",a:"noop"}])}});
+window.addEventListener("appinstalled",()=>{installEvt=null;toast("installed. open parts bin from your home screen.")});
+function registerSW(){
+  if(IN_CLAUDE||!("serviceWorker" in navigator)||!(location.protocol==="https:"||location.hostname==="localhost"||location.hostname==="127.0.0.1"))return;
+  let reloading=false,wanted=false;
+  navigator.serviceWorker.addEventListener("controllerchange",()=>{if(wanted&&!reloading){reloading=true;location.reload()}});
+  navigator.serviceWorker.register("./sw.js").then(reg=>{
+    const offer=w=>{$("#update").hidden=false;on("#updateGo","click",async()=>{await flushNow();if(savedSeq!==changeSeq){flash("saving first, try again");return}wanted=true;w.postMessage("skipWaiting")},"updating the app")};
+    if(reg.waiting&&navigator.serviceWorker.controller)offer(reg.waiting);
+    reg.addEventListener("updatefound",()=>{const w=reg.installing;if(!w)return;w.addEventListener("statechange",()=>{if(w.state==="installed"&&navigator.serviceWorker.controller)offer(w)})});
+    setInterval(()=>reg.update().catch(()=>{}),60*60*1000);
+  }).catch(e=>{try{console.warn("service worker not registered",e)}catch(_){}});
+}
+
+/* ---------- go ---------- */
+boot().then(registerSW).catch(bootFailed);
+
+</script>
+</body>
+</html>
